@@ -38,7 +38,12 @@ contract EnergyBiddingMarketTest is Test {
     }
 
     function test_placeBid_lessThanMinimumPrice() public {
-        vm.expectRevert(abi.encodeWithSelector(EnergyBiddingMarket__MinimumPriceNotMet.selector, 100, 10000));
+        vm.expectRevert(abi.encodeWithSelector(EnergyBiddingMarket__BidMinimumPriceNotMet.selector, 100, 10000));
         market.placeBid(correctHour, 100, 100);
+    }
+
+    function test_placeBid_amountZero() public {
+        vm.expectRevert(abi.encodeWithSelector(EnergyBiddingMarket__AmountCannotBeZero.selector, 0));
+        market.placeBid(correctHour, 0, minimumPrice);
     }
 }

@@ -11,7 +11,8 @@ error EnergyBiddingMarket__NoClaimableBalance(address user);
 error EnergyBiddingMarket__OnlyAskOwnerCanCancel(uint256 hour, address seller);
 error EnergyBiddingMarket__OnlyBidOwnerCanCancel(uint256 hour, address bidder);
 error EnergyBiddingMarket__NoBidFulfilled(uint256 hour);
-error EnergyBiddingMarket__MinimumPriceNotMet(uint256 price, uint256 minimumPrice);
+error EnergyBiddingMarket__BidMinimumPriceNotMet(uint256 price, uint256 minimumPrice);
+error EnergyBiddingMarket__AmountCannotBeZero(uint256 amount);
 
 contract EnergyBiddingMarket {
     using SafeERC20 for IERC20;
@@ -62,7 +63,10 @@ contract EnergyBiddingMarket {
             revert EnergyBiddingMarket__WrongHourProvided(hour);
 
         if (price < MIN_PRICE)
-            revert EnergyBiddingMarket__MinimumPriceNotMet(price, MIN_PRICE);
+            revert EnergyBiddingMarket__BidMinimumPriceNotMet(price, MIN_PRICE);
+
+        if (amount == 0)
+            revert EnergyBiddingMarket__AmountCannotBeZero(amount);
 
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
