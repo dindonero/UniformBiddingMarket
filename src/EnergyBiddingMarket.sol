@@ -11,6 +11,7 @@ error EnergyBiddingMarket__NoClaimableBalance(address user);
 error EnergyBiddingMarket__OnlyAskOwnerCanCancel(uint256 hour, address seller);
 error EnergyBiddingMarket__OnlyBidOwnerCanCancel(uint256 hour, address bidder);
 error EnergyBiddingMarket__NoBidFulfilled(uint256 hour);
+error EnergyBiddingMarket__MinimumPriceNotMet(uint256 price, uint256 minimumPrice);
 
 contract EnergyBiddingMarket {
     using SafeERC20 for IERC20;
@@ -30,6 +31,9 @@ contract EnergyBiddingMarket {
         uint256 matchedAmount; // Amount of energy in kWh that has been matched
         bool settled; // Flag to indicate if the ask has been settled
     }
+
+    uint8 public constant PRICE_DECIMALS = 6; // same as EURC decimals
+    uint256 public constant MIN_PRICE = 10000; // 0.01 EURC per kwH
 
     //todo change structure to mapping(uint256 => mapping(uint256 => Bid)) for gas optimization and clear cancel option
     mapping(uint256 => Bid[]) public bidsByHour;
@@ -56,6 +60,9 @@ contract EnergyBiddingMarket {
     function placeBid(uint256 hour, uint256 amount, uint256 price) external {
         if (hour % 3600 != 0 || hour <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
+
+        if (price < MIN_PRICE)
+            revert EnergyBiddingMarket__MinimumPriceNotMet(price, MIN_PRICE);
 
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
@@ -140,7 +147,7 @@ contract EnergyBiddingMarket {
         emit MarketCleared(hour, clearingPrice);
     }
 
-    /* todo change bids from list to mapping
+    /* todo change bids from list to mapping or add cancel bool to bid
     function cancelBid(uint256 hour, uint256 index) external {
         if (msg.sender != bidsByHour[hour][index].bidder)
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
