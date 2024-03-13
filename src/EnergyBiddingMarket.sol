@@ -12,7 +12,7 @@ error EnergyBiddingMarket__OnlyAskOwnerCanCancel(uint256 hour, address seller);
 error EnergyBiddingMarket__OnlyBidOwnerCanCancel(uint256 hour, address bidder);
 error EnergyBiddingMarket__NoBidFulfilled(uint256 hour);
 error EnergyBiddingMarket__BidMinimumPriceNotMet(uint256 price, uint256 minimumPrice);
-error EnergyBiddingMarket__AmountCannotBeZero(uint256 amount);
+error EnergyBiddingMarket__AmountCannotBeZero();
 
 contract EnergyBiddingMarket {
     using SafeERC20 for IERC20;
@@ -66,7 +66,7 @@ contract EnergyBiddingMarket {
             revert EnergyBiddingMarket__BidMinimumPriceNotMet(price, MIN_PRICE);
 
         if (amount == 0)
-            revert EnergyBiddingMarket__AmountCannotBeZero(amount);
+            revert EnergyBiddingMarket__AmountCannotBeZero();
 
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
@@ -83,6 +83,9 @@ contract EnergyBiddingMarket {
 
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
+
+        if (amount == 0)
+            revert EnergyBiddingMarket__AmountCannotBeZero();
 
         asksByHour[hour].push(Ask(msg.sender, amount, 0, false));
         totalAvailableEnergyByHour[hour] += amount;
@@ -161,6 +164,10 @@ contract EnergyBiddingMarket {
         bidsByHour[hour][index] = bidsByHour[hour][bidsByHour[hour].length - 1];
         bidsByHour[hour].pop();
     }*/
+
+    function balanceOf(address user) external view returns (uint256) {
+        return claimableBalance[user];
+    }
 
     function sortBids(Bid[] storage bids) internal {
         // Simple insertion sort for demonstration purposes
