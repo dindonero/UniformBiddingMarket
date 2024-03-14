@@ -132,7 +132,7 @@ contract EnergyBiddingMarket {
                     claimableBalance[ask.seller] += amountLeftInAsk * clearingPrice;
                     emit AskFulfilled(hour, ask.seller, j, amountLeftInAsk, clearingPrice);
                     fulfilledAsks++;
-                    if (totalMatchedEnergyForBid + amountLeftInAsk == bid.amount)
+                    if (totalMatchedEnergyForBid == bid.amount) // saves 1 iteration
                         break;
                 } else {
                     ask.matchedAmount += bid.amount - totalMatchedEnergyForBid;
@@ -144,6 +144,7 @@ contract EnergyBiddingMarket {
             }
 
             // handle Bid is settled
+            // bid is always fulfilled, since it only runs when bid is above the clearing price
             bid.settled = true;
             // refund the remaining amount of the bid
             claimableBalance[bid.bidder] += bid.amount * (bid.price - clearingPrice);

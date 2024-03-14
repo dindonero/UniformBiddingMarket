@@ -119,8 +119,6 @@ contract EnergyBiddingMarketTest is Test {
         }
 
         // Attempt to clear the market
-        // The expectation here depends on your market clearing logic. If your logic allows for partial fulfillment,
-        // this may not revert. If it requires full fulfillment, you'd expect a revert or a specific outcome.
         market.clearMarket(correctHour);
 
         uint256 expectedMatchedAmount = 5000;
@@ -128,6 +126,10 @@ contract EnergyBiddingMarketTest is Test {
         (, , uint256 matchedAmount, bool settled) = market.asksByHour(correctHour, 0);
         assertEq(settled, false);
         assertEq(matchedAmount, expectedMatchedAmount);
+        for (uint256 i = 0; i < 50; i++) {
+            (, matchedAmount, , settled) = market.bidsByHour(correctHour, i);
+            assertEq(settled, true);
+        }
     }
 
 
@@ -147,7 +149,22 @@ contract EnergyBiddingMarketTest is Test {
         // The expectation here depends on your market clearing logic.
         market.clearMarket(correctHour);
 
-        // Add assertions here to verify the state after attempting to clear the market
-        // Check if the big bid was partially fulfilled, if the asks were all fulfilled, and the clearing price
+        // bid should be settled
+        (, , , bool settled) = market.bidsByHour(correctHour, 0);
+        assertEq(settled, true);
+
+        uint256 amountMatched;
+
+        // 10 first asks should be settled and the rest shouldn't
+        for (uint256 i = 0; i < 10; i++) {
+            (, , amountMatched, settled) = market.asksByHour(correctHour, i);
+            assertEq(settled, true);
+            assertEq(amountMatched, smallAskAmount);
+        }
+        for (uint256 i = 10; i < 50; i++) {
+            (, , amountMatched, settled) = market.asksByHour(correctHour, i);
+            assertEq(settled, false);
+            assertEq(amountMatched, 0);
+        }
     }
 }
