@@ -10,4 +10,8 @@ contract EURC is ERC20 {
     function mint(uint256 amount) external {
         _mint(msg.sender, amount);
     }
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
 }

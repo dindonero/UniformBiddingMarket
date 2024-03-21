@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {console} from "forge-std/Test.sol";
 
 error EnergyBiddingMarket__WrongHourProvided(uint256 hour);
 error EnergyBiddingMarket__NoBidsOrAsksForThisHour(uint256 hour);
@@ -171,17 +172,19 @@ contract EnergyBiddingMarket {
     }
 
     function sortBids(Bid[] storage bids) internal {
-        // Simple insertion sort for demonstration purposes
         for (uint i = 1; i < bids.length; i++) {
             Bid memory key = bids[i];
-            uint j = i - 1;
-            while ((int(j) >= 0) && (bids[j].price < key.price)) {
-                bids[j + 1] = bids[j];
+            uint j = i;
+            while (j > 0 && bids[j - 1].price < key.price) {
+                bids[j] = bids[j - 1];
                 j--;
             }
-            bids[j + 1] = key;
+            if (j != i) {
+                bids[j] = key;
+            }
         }
     }
+
 
     function determineClearingPrice(uint256 hour) internal view returns (uint256) {
         Bid[] memory bids = bidsByHour[hour];

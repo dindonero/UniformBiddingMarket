@@ -167,4 +167,74 @@ contract EnergyBiddingMarketTest is Test {
             assertEq(amountMatched, 0);
         }
     }
+
+    function test_clearMarket_randomBidsAndAsks() public {
+
+        uint256 loops = 100;
+        // Generate random bids and asks
+        uint256 totalBidAmount = 0;
+        uint256 totalAskAmount = 0;
+        uint256 bidPrice = market.MIN_PRICE();
+        uint256 smallAskAmount = 10;
+        uint256 smallBidAmount = 20;
+
+        // Place random bids
+        for (uint256 i = 0; i < loops; i++) {
+            uint256 randomBidAmount = smallBidAmount + (i * 2); // Increment to vary the bid amounts
+            market.placeBid(correctHour, randomBidAmount, bidPrice + i); // Increment to vary the bid prices
+            totalBidAmount += randomBidAmount;
+        }
+
+        // Place random asks
+        for (uint256 i = 0; i < loops; i++) {
+            uint256 randomAskAmount = smallAskAmount + i; // Increment to vary the ask amounts
+            market.placeAsk(correctHour, randomAskAmount);
+            totalAskAmount += randomAskAmount;
+        }
+
+        // Attempt to clear the market
+        market.clearMarket(correctHour);
+
+        // Verify the settled status and amount matched for bids and asks
+        uint256 amountMatched;
+        bool settled;
+        uint256 amount;
+        uint256 matchedBids = 0;
+        uint256 totalMatchedAmount = 0;
+        uint256 bidAmount;
+
+        // Check bids
+        for (uint256 i = 0; i < loops; i++) {
+            (, bidAmount, , settled) = market.bidsByHour(correctHour, i);
+            if (settled) {
+                matchedBids++;
+                totalMatchedAmount += bidAmount;
+            }
+        }
+
+        // The total matched amount should not exceed the total bid amount
+        assert(totalMatchedAmount <= totalBidAmount);
+
+        // Check asks
+        uint256 settledAsks = 0;
+        uint256 actualTotalAskAmount = 0; 
+        for (uint256 i = 0; i < loops; i++) {
+            (, amount, amountMatched, settled) = market.asksByHour(correctHour, i);
+            if (actualTotalAskAmount < totalMatchedAmount) {
+                assertEq(amountMatched, settled ? smallAskAmount + i : totalMatchedAmount - actualTotalAskAmount); // Each settled ask should match its asked amount
+                bool settledOrPartiallySettled = settled || (!settled && (amountMatched < amount));
+                assert(settledOrPartiallySettled);
+                settledAsks++;
+                actualTotalAskAmount += amountMatched;
+            } else {
+                assertEq(amountMatched, 0); // Unsettled asks should have no amount matched
+            }
+        }
+
+        assertEq(actualTotalAskAmount, totalMatchedAmount);
+
+        // The number of settled asks should be less than or equal to the total number of asks
+        assert(settledAsks <= loops);
+    }
+
 }
