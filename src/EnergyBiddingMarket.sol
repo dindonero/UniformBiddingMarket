@@ -12,7 +12,10 @@ error EnergyBiddingMarket__NoClaimableBalance(address user);
 error EnergyBiddingMarket__OnlyAskOwnerCanCancel(uint256 hour, address seller);
 error EnergyBiddingMarket__OnlyBidOwnerCanCancel(uint256 hour, address bidder);
 error EnergyBiddingMarket__NoBidFulfilled(uint256 hour);
-error EnergyBiddingMarket__BidMinimumPriceNotMet(uint256 price, uint256 minimumPrice);
+error EnergyBiddingMarket__BidMinimumPriceNotMet(
+    uint256 price,
+    uint256 minimumPrice
+);
 error EnergyBiddingMarket__AmountCannotBeZero();
 
 contract EnergyBiddingMarket {
@@ -45,20 +48,56 @@ contract EnergyBiddingMarket {
 
     mapping(address => uint256) public claimableBalance;
 
-    event BidPlaced(address indexed bidder, uint256 hour, uint256 amount, uint256 price);
+    event BidPlaced(
+        address indexed bidder,
+        uint256 hour,
+        uint256 amount,
+        uint256 price
+    );
     event AskPlaced(address indexed seller, uint256 hour, uint256 amount);
 
-    event BidFulfilled(uint256 indexed hour, uint256 indexed id, address indexed bidder, uint256 amount, uint256 price);
-    event AskFulfilled(uint256 indexed hour, address indexed seller, uint256 indexed id, uint256 amount, uint256 price);
-    event AskPartiallyFulfilled(uint256 indexed hour, address indexed seller, uint256 indexed id, uint256 amount, uint256 price);
+    event BidFulfilled(
+        uint256 indexed hour,
+        uint256 indexed id,
+        address indexed bidder,
+        uint256 amount,
+        uint256 price
+    );
+    event AskFulfilled(
+        uint256 indexed hour,
+        address indexed seller,
+        uint256 indexed id,
+        uint256 amount,
+        uint256 price
+    );
+    event AskPartiallyFulfilled(
+        uint256 indexed hour,
+        address indexed seller,
+        uint256 indexed id,
+        uint256 amount,
+        uint256 price
+    );
 
     event MarketCleared(uint256 hour, uint256 clearingPrice);
-    event SettlementDone(uint256 hour, address user, uint256 amount, bool isBid);
+    event SettlementDone(
+        uint256 hour,
+        address user,
+        uint256 amount,
+        bool isBid
+    );
 
+    /// @notice Constructs the EnergyBiddingMarket contract.
+    /// @param _eurcTokenAddress The address of the EURC token contract used for bidding and settlements.
     constructor(address _eurcTokenAddress) {
         EURC = IERC20(_eurcTokenAddress);
     }
 
+    /// @notice Places a bid for energy in a specific market hour.
+    /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
+    ///      Bids can only be placed for future hours not yet cleared.
+    /// @param hour The market hour for which the bid is being placed.
+    /// @param amount The amount of energy in kWh being bid for.
+    /// @param price The price per kWh in EURC.
     function placeBid(uint256 hour, uint256 amount, uint256 price) external {
         if (hour % 3600 != 0 || hour <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
@@ -66,8 +105,7 @@ contract EnergyBiddingMarket {
         if (price < MIN_PRICE)
             revert EnergyBiddingMarket__BidMinimumPriceNotMet(price, MIN_PRICE);
 
-        if (amount == 0)
-            revert EnergyBiddingMarket__AmountCannotBeZero();
+        if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
@@ -78,6 +116,10 @@ contract EnergyBiddingMarket {
         emit BidPlaced(msg.sender, hour, amount, price);
     }
 
+    /// @notice Places an ask for selling energy in a specific market hour.
+    /// @dev Requires that the ask amount is not zero and can only be placed for future hours not yet cleared.
+    /// @param hour The market hour for which the ask is being placed.
+    /// @param amount The amount of energy in kWh being offered.
     function placeAsk(uint256 hour, uint256 amount) external {
         if (hour % 3600 != 0 || hour <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
@@ -85,14 +127,15 @@ contract EnergyBiddingMarket {
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
 
-        if (amount == 0)
-            revert EnergyBiddingMarket__AmountCannotBeZero();
+        if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         asksByHour[hour].push(Ask(msg.sender, amount, 0, false));
         totalAvailableEnergyByHour[hour] += amount;
         emit AskPlaced(msg.sender, hour, amount);
     }
 
+    /// @notice Allows users to claim any balance available to them from fulfilled bids or asks.
+    /// @dev Reverts if the user has no claimable balance.
     function claimBalance() external {
         uint256 balance = claimableBalance[msg.sender];
         if (balance == 0)
@@ -101,6 +144,11 @@ contract EnergyBiddingMarket {
         EURC.safeTransfer(msg.sender, balance);
     }
 
+    /// @notice Clears the market for a specific hour, matching bids and asks based on the determined clearing price.
+    /// @dev This function matches orders in price descending order and settles them.
+    ///      Anyone can call this function to clear the market. However, the system does not currently reimburse the caller for gas expenses.
+    ///      It is assumed that the market will either be operated by an entity that requires its operation, or the gas costs will be shared among the participants of the market.
+    /// @param hour The market hour to clear.
     function clearMarket(uint256 hour) external {
         // todo require the time to be one hour before
         if (bidsByHour[hour].length == 0 || asksByHour[hour].length == 0)
@@ -117,7 +165,8 @@ contract EnergyBiddingMarket {
 
         for (uint256 i = 0; i < bids.length; i++) {
             Bid storage bid = bids[i];
-            if (bid.price < clearingPrice) // unfulfilled bid orders
+            if (bid.price < clearingPrice)
+                // unfulfilled bid orders
                 break;
 
             uint256 totalMatchedEnergyForBid = 0;
@@ -130,16 +179,33 @@ contract EnergyBiddingMarket {
                     ask.matchedAmount = ask.amount;
                     totalMatchedEnergyForBid += amountLeftInAsk;
                     // handle ask is fulfilled
-                    claimableBalance[ask.seller] += amountLeftInAsk * clearingPrice;
-                    emit AskFulfilled(hour, ask.seller, j, amountLeftInAsk, clearingPrice);
+                    claimableBalance[ask.seller] +=
+                        amountLeftInAsk *
+                        clearingPrice;
+                    emit AskFulfilled(
+                        hour,
+                        ask.seller,
+                        j,
+                        amountLeftInAsk,
+                        clearingPrice
+                    );
                     fulfilledAsks++;
-                    if (totalMatchedEnergyForBid == bid.amount) // saves 1 iteration
+                    if (totalMatchedEnergyForBid == bid.amount)
+                        // saves 1 iteration
                         break;
                 } else {
                     ask.matchedAmount += bid.amount - totalMatchedEnergyForBid;
                     //handle ask is partially fulfilled
-                    claimableBalance[ask.seller] += (bid.amount - totalMatchedEnergyForBid) * clearingPrice;
-                    emit AskPartiallyFulfilled(hour, ask.seller, j, ask.amount, clearingPrice);
+                    claimableBalance[ask.seller] +=
+                        (bid.amount - totalMatchedEnergyForBid) *
+                        clearingPrice;
+                    emit AskPartiallyFulfilled(
+                        hour,
+                        ask.seller,
+                        j,
+                        ask.amount,
+                        clearingPrice
+                    );
                     break;
                 }
             }
@@ -148,7 +214,9 @@ contract EnergyBiddingMarket {
             // bid is always fulfilled, since it only runs when bid is above the clearing price
             bid.settled = true;
             // refund the remaining amount of the bid
-            claimableBalance[bid.bidder] += bid.amount * (bid.price - clearingPrice);
+            claimableBalance[bid.bidder] +=
+                bid.amount *
+                (bid.price - clearingPrice);
             emit BidFulfilled(hour, i, bid.bidder, bid.amount, clearingPrice);
         }
 
@@ -157,6 +225,10 @@ contract EnergyBiddingMarket {
     }
 
     /* todo change bids from list to mapping or add cancel bool to bid
+    /// @notice Allows a bidder to cancel their bid for a specific hour if the market has not yet been cleared.
+    /// @dev Only the owner of the bid can cancel it, and it cannot be cancelled once the market is cleared.
+    /// @param hour The hour of the bid to cancel.
+    /// @param index The index of the bid in the storage array.
     function cancelBid(uint256 hour, uint256 index) external {
         if (msg.sender != bidsByHour[hour][index].bidder)
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
@@ -167,10 +239,16 @@ contract EnergyBiddingMarket {
         bidsByHour[hour].pop();
     }*/
 
+    /// @notice Returns the claimable balance of a user.
+    /// @dev This balance includes any funds due to the user from market operations, such as fulfilled bids or asks.
+    /// @param user The address of the user whose balance is being queried.
+    /// @return The claimable balance of the user.
     function balanceOf(address user) external view returns (uint256) {
         return claimableBalance[user];
     }
 
+    /// @dev Sorts an array of bids in descending order by price. This is used internally to prepare for market clearing.
+    /// @param bids The array of Bid structs to sort.
     function sortBids(Bid[] storage bids) internal {
         for (uint i = 1; i < bids.length; i++) {
             Bid memory key = bids[i];
@@ -185,8 +263,12 @@ contract EnergyBiddingMarket {
         }
     }
 
-
-    function determineClearingPrice(uint256 hour) internal view returns (uint256) {
+    /// @dev Determines the clearing price for a specific hour based on bid amounts and available energy.
+    /// @param hour The hour for which to determine the clearing price.
+    /// @return The clearing price based on bid competition and energy availability.
+    function determineClearingPrice(
+        uint256 hour
+    ) internal view returns (uint256) {
         Bid[] memory bids = bidsByHour[hour];
 
         uint256 totalMatchedEnergy = 0;
@@ -200,10 +282,8 @@ contract EnergyBiddingMarket {
             // If the accumulated energy meets/exceeds total available energy, return the last bid's price as the clearing price
             // todo check with ian: we return the last bid price so that there is no half matched bid
             if (totalMatchedEnergy >= totalAvailableEnergy) {
-                if (i == 0)
-                    revert EnergyBiddingMarket__NoBidFulfilled(hour);
-                else
-                    return bids[i - 1].price;
+                if (i == 0) revert EnergyBiddingMarket__NoBidFulfilled(hour);
+                else return bids[i - 1].price;
             }
         }
 
@@ -212,5 +292,68 @@ contract EnergyBiddingMarket {
         return bids[bids.length - 1].price;
     }
 
+    /// @notice Retrieves all bids placed for a specific hour.
+    /// @param hour The hour for which bids are being retrieved.
+    /// @return An array of Bid structs for the specified hour.
+    function getBidsByHour(uint256 hour) external view returns (Bid[] memory) {
+        return bidsByHour[hour];
+    }
 
+    /// @notice Retrieves all asks placed for a specific hour.
+    /// @param hour The hour for which asks are being retrieved.
+    /// @return An array of Ask structs for the specified hour.
+    function getAsksByHour(uint256 hour) external view returns (Ask[] memory) {
+        return asksByHour[hour];
+    }
+
+    /// @notice Retrieves all bids placed by a specific user for a specific hour.
+    /// @param hour The hour for which bids are being retrieved.
+    /// @param user The address of the user whose bids are being retrieved.
+    /// @return An array of Bid structs that were placed by the specified user for the specified hour.
+    function getBidsByAddress(
+        uint256 hour,
+        address user
+    ) external view returns (Bid[] memory) {
+        Bid[] memory bids = bidsByHour[hour];
+        uint256 count = 0;
+        for (uint256 i = 0; i < bids.length; i++) {
+            if (bids[i].bidder == user) count++;
+        }
+        Bid[] memory userBids = new Bid[](count);
+        count = 0;
+        for (uint256 i = 0; i < bids.length; i++) {
+            if (bids[i].bidder == user) {
+                userBids[count] = bids[i];
+                count++;
+            }
+        }
+        return userBids;
+    }
+
+    /// @notice Retrieves all asks placed by a specific user for a specific hour.
+    /// @param hour The hour for which asks are being retrieved.
+    /// @param user The address of the user whose asks are being retrieved.
+    /// @return An array of Ask structs that were placed by the specified user for the specified hour.
+    function getAsksByAddress(
+        uint256 hour,
+        address user
+    ) external view returns (Ask[] memory) {
+        Ask[] memory asks = asksByHour[hour];
+        uint256 count = 0;
+        for (uint256 i = 0; i < asks.length; i++) {
+            if (asks[i].seller == user) {
+                count++;
+            }
+        }
+
+        Ask[] memory userAsks = new Ask[](count);
+        count = 0;
+        for (uint256 i = 0; i < asks.length; i++) {
+            if (asks[i].seller == user) {
+                userAsks[count] = asks[i];
+                count++;
+            }
+        }
+        return userAsks;
+    }
 }

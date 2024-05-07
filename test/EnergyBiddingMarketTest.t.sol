@@ -21,6 +21,12 @@ contract EnergyBiddingMarketTest is Test {
 
         eurc.mint(type(uint256).max);
         eurc.approve(address(market), type(uint256).max);
+        eurc.transfer(address(0xBEEF), 10 ** 18);
+
+        vm.prank(address(0xBEEF));
+        eurc.approve(address(market), type(uint256).max);
+
+        vm.stopPrank();
     }
 
     function test_placeBid_Success() public {
@@ -235,6 +241,87 @@ contract EnergyBiddingMarketTest is Test {
 
         // The number of settled asks should be less than or equal to the total number of asks
         assert(settledAsks <= loops);
+    }
+
+    function test_getBidsByHour() public {
+        uint256 amount = 100;
+        uint256 bidPrice = market.MIN_PRICE();
+        market.placeBid(correctHour, amount, bidPrice);
+        EnergyBiddingMarket.Bid[] memory bids = market.getBidsByHour(correctHour);
+        assertEq(bids[0].bidder, address(this));
+        assertEq(bids[0].amount, amount);
+        assertEq(bids[0].price, bidPrice);
+        assertEq(bids[0].settled, false);
+        assertEq(bids.length, 1);
+    }
+
+    function test_getAsksByHour() public {
+        uint256 amount = 100;
+        market.placeAsk(correctHour, amount);
+        EnergyBiddingMarket.Ask[] memory asks = market.getAsksByHour(correctHour);
+        assertEq(asks[0].seller, address(this));
+        assertEq(asks[0].amount, amount);
+        assertEq(asks[0].settled, false);
+        assertEq(asks.length, 1);
+    }
+
+    // in this function multiple bids are placed by different addresses and then we check if the function returns the correct bids by address
+    function test_getAsksByAddress() public {
+        // Setup: Place multiple asks by different addresses
+        vm.prank(address(0xBEEF));
+        market.placeAsk(correctHour, 100);
+
+        vm.stopPrank();
+        market.placeAsk(correctHour, 200);
+
+        vm.prank(address(0xBEEF));
+        market.placeAsk(correctHour, 50);
+
+        // Act: Retrieve asks by specific address
+        EnergyBiddingMarket.Ask[] memory beefAsks = market.getAsksByAddress(correctHour, address(0xBEEF));
+
+        // Assert: Check correct filtering
+        assertEq(beefAsks.length, 2);
+        assertEq(beefAsks[0].seller, address(0xBEEF));
+        assertEq(beefAsks[0].amount, 100);
+        assertEq(beefAsks[1].seller, address(0xBEEF));
+        assertEq(beefAsks[1].amount, 50);
+
+        // Additional checks to ensure no asks from other addresses are included
+        for (uint i = 0; i < beefAsks.length; i++) {
+            assertEq(beefAsks[i].seller, address(0xBEEF));
+        }
+    }
+
+    function test_getBidsByAddress() public {
+        // Setup: Place multiple bids by different addresses
+        uint256 price = 100000; // 0.1 EURC assuming 6 decimal places for the token
+
+        vm.prank(address(0xBEEF));
+        market.placeBid(correctHour, 100, price); // Address 0xBEEF places a bid
+
+        vm.stopPrank();
+        market.placeBid(correctHour, 200, price); // Address 0xDEAD places another bid
+
+        vm.prank(address(0xBEEF));
+        market.placeBid(correctHour, 50, price); // Address 0xBEEF places another bid
+
+        // Act: Retrieve bids by specific address
+        EnergyBiddingMarket.Bid[] memory beefBids = market.getBidsByAddress(correctHour, address(0xBEEF));
+
+        // Assert: Check correct filtering
+        assertEq(beefBids.length, 2);
+        assertEq(beefBids[0].bidder, address(0xBEEF));
+        assertEq(beefBids[0].amount, 100);
+        assertEq(beefBids[0].price, price);
+        assertEq(beefBids[1].bidder, address(0xBEEF));
+        assertEq(beefBids[1].amount, 50);
+        assertEq(beefBids[1].price, price);
+
+        // Additional checks to ensure no bids from other addresses are included
+        for (uint i = 0; i < beefBids.length; i++) {
+            assertEq(beefBids[i].bidder, address(0xBEEF));
+        }
     }
 
 }
