@@ -86,6 +86,12 @@ contract EnergyBiddingMarket {
         bool isBid
     );
 
+    modifier assertExactHour(uint256 hour) {
+        if (hour % 3600 != 0)
+            revert EnergyBiddingMarket__WrongHourProvided(hour);
+        _;
+    }
+
     /// @notice Constructs the EnergyBiddingMarket contract.
     /// @param _eurcTokenAddress The address of the EURC token contract used for bidding and settlements.
     constructor(address _eurcTokenAddress) {
@@ -98,8 +104,12 @@ contract EnergyBiddingMarket {
     /// @param hour The market hour for which the bid is being placed.
     /// @param amount The amount of energy in kWh being bid for.
     /// @param price The price per kWh in EURC.
-    function placeBid(uint256 hour, uint256 amount, uint256 price) external {
-        if (hour % 3600 != 0 || hour <= block.timestamp)
+    function placeBid(
+        uint256 hour,
+        uint256 amount,
+        uint256 price
+    ) public assertExactHour(hour) {
+        if (hour <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
 
         if (price < MIN_PRICE)
@@ -120,8 +130,11 @@ contract EnergyBiddingMarket {
     /// @dev Requires that the ask amount is not zero and can only be placed for future hours not yet cleared.
     /// @param hour The market hour for which the ask is being placed.
     /// @param amount The amount of energy in kWh being offered.
-    function placeAsk(uint256 hour, uint256 amount) external {
-        if (hour % 3600 != 0 || hour <= block.timestamp)
+    function placeAsk(
+        uint256 hour,
+        uint256 amount
+    ) public assertExactHour(hour) {
+        if (hour >= block.timestamp || hour + 3600 <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
 
         if (isMarketCleared[hour])
@@ -132,6 +145,23 @@ contract EnergyBiddingMarket {
         asksByHour[hour].push(Ask(msg.sender, amount, 0, false));
         totalAvailableEnergyByHour[hour] += amount;
         emit AskPlaced(msg.sender, hour, amount);
+    }
+
+    /// @notice Places multiple bids for energy over a range of market hours.
+    /// @dev Calls `placeBid` for each hour in the specified range.
+    /// @param beginHour The starting hour of the range.
+    /// @param endHour The ending hour of the range.
+    /// @param amount The amount of energy in kWh being bid for each hour.
+    /// @param price The price per kWh in EURC for each bid.
+    function placeMultipleBids(
+        uint256 beginHour,
+        uint256 endHour,
+        uint256 amount,
+        uint256 price
+    ) external {
+        for (uint256 i = beginHour; i < endHour; i += 3600) {
+            placeBid(i, amount, price);
+        }
     }
 
     /// @notice Allows users to claim any balance available to them from fulfilled bids or asks.
@@ -145,12 +175,13 @@ contract EnergyBiddingMarket {
     }
 
     /// @notice Clears the market for a specific hour, matching bids and asks based on the determined clearing price.
-    /// @dev This function matches orders in price descending order and settles them.
+    /// @dev This function matches orders in price descending order and settles them. Can only be called 1 hour after the market hour.
     ///      Anyone can call this function to clear the market. However, the system does not currently reimburse the caller for gas expenses.
     ///      It is assumed that the market will either be operated by an entity that requires its operation, or the gas costs will be shared among the participants of the market.
     /// @param hour The market hour to clear.
-    function clearMarket(uint256 hour) external {
-        // todo require the time to be one hour before
+    function clearMarket(uint256 hour) external assertExactHour(hour) {
+        if (hour + 3600 > block.timestamp)
+            revert EnergyBiddingMarket__WrongHourProvided(hour);
         if (bidsByHour[hour].length == 0 || asksByHour[hour].length == 0)
             revert EnergyBiddingMarket__NoBidsOrAsksForThisHour(hour);
         if (isMarketCleared[hour])
