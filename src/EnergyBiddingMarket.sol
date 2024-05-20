@@ -312,7 +312,7 @@ contract EnergyBiddingMarket {
 
             // If the accumulated energy meets/exceeds total available energy, return the last bid's price as the clearing price
             // todo check with ian: we return the last bid price so that there is no half matched bid
-            if (totalMatchedEnergy >= totalAvailableEnergy) {
+            if (totalMatchedEnergy > totalAvailableEnergy) {
                 if (i == 0) revert EnergyBiddingMarket__NoBidFulfilled(hour);
                 else return bids[i - 1].price;
             }
