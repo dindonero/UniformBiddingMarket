@@ -23,7 +23,7 @@ contract EnergyBiddingMarketTest is Test {
         clearHour = askHour + 3601;
         minimumPrice = market.MIN_PRICE();
 
-        eurc.mint(type(uint256).max);
+        eurc.mint(10 ** 20);
         eurc.approve(address(market), type(uint256).max);
         eurc.transfer(address(0xBEEF), 10 ** 18);
 
