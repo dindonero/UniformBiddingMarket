@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+import {console} from "forge-std/Test.sol";
+
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+
 error EnergyBiddingMarket__WrongHourProvided(uint256 hour);
 error EnergyBiddingMarket__WrongHoursProvided(uint256 beginHour, uint256 endHour);
 error EnergyBiddingMarket__NoBidsOrAsksForThisHour(uint256 hour);
@@ -15,7 +21,7 @@ error EnergyBiddingMarket__BidMinimumPriceNotMet(
 );
 error EnergyBiddingMarket__AmountCannotBeZero();
 
-contract EnergyBiddingMarket {
+contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeable {
     struct Bid {
         address bidder;
         uint256 amount; // Amount of energy in kWh
@@ -90,6 +96,19 @@ contract EnergyBiddingMarket {
         _;
     }
 
+    /* ///////////////////// */
+    /*                       */
+    /* UUPSUpgradeable logic */
+    /*                       */
+    /* ///////////////////// */
+    function initialize(address owner) initializer public {
+        __Ownable_init(owner);
+        __UUPSUpgradeable_init();
+    }
+
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+
+
     /// @notice Places a bid for energy in a specific market hour.
     /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
     ///      Bids can only be placed for future hours not yet cleared.
@@ -113,6 +132,7 @@ contract EnergyBiddingMarket {
         uint256 hour,
         uint256 amount
     ) public assertExactHour(hour) {
+        console.log(block.timestamp, hour);
         if (hour >= block.timestamp || hour + 3600 <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
 

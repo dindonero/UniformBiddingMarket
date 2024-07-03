@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test, console} from "forge-std/Test.sol";
 import "../src/EnergyBiddingMarket.sol";
+import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {DeployerEnergyBiddingMarket} from "../script/EnergyBiddingMarket.s.sol";
 
 contract EnergyBiddingMarketTest is Test {
@@ -15,7 +16,9 @@ contract EnergyBiddingMarketTest is Test {
 
     function setUp() public {
         DeployerEnergyBiddingMarket deployer = new DeployerEnergyBiddingMarket();
+
         market = deployer.run();
+        
         correctHour = (block.timestamp / 3600) * 3600 + 3600; // first math is to get the current exact hour
         askHour = correctHour + 1;
         clearHour = askHour + 3601;
@@ -164,7 +167,7 @@ contract EnergyBiddingMarketTest is Test {
         vm.warp(clearHour);
         
         market.clearMarket(correctHour);
-        assertEq(market.balanceOf(address(this)), minimumPrice *    amount);
+        assertEq(market.balanceOf(address(this)), minimumPrice * amount);
     }
 
     function test_clearMarket_bigAskSmallBids() public {
@@ -426,5 +429,22 @@ contract EnergyBiddingMarketTest is Test {
             assertEq(settled, false);
             assertEq(bidder, address(this));
         }
+    }
+
+    function test_proxyUpgradability() public {
+
+        // Deploy a new implementation contract
+        EnergyBiddingMarket newImplementation = new EnergyBiddingMarket();
+
+        // Upgrade the proxy to the new implementation
+        UnsafeUpgrades.upgradeProxy(address(market), address(newImplementation), "");
+
+        bytes32 IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+        bytes32 slotValue = vm.load(address(market), IMPLEMENTATION_SLOT);
+        address retrievedImplementation = address(uint160(uint256(slotValue)));
+
+        // Verify that the implementation address has been updated
+        assertEq(retrievedImplementation, address(newImplementation));
     }
 }

@@ -2,6 +2,10 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+ffi = true
+ast = true
+build_info = true
+extra_output = ["storageLayout"]
 
 [etherscan]
 arbitrum-sepolia = {key = "WWQ7TEHXAYKHJCN6IF82HW2EWX8X135482"}
