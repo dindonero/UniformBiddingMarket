@@ -17,10 +17,10 @@ contract DeployerEnergyBiddingMarket is Script {
         // Deploy the proxy contract
         address proxy = UnsafeUpgrades.deployUUPSProxy(address(implementation), abi.encodeWithSignature("initialize(address)", msg.sender));
 
+        vm.stopBroadcast();
+
         // Cast the proxy to the EnergyBiddingMarket contract
         EnergyBiddingMarket market = EnergyBiddingMarket(address(proxy));
-
-        vm.stopBroadcast();
 
         return (market);
     }

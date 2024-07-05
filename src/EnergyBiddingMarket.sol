@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {console} from "forge-std/Test.sol";
-
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -132,7 +130,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         uint256 hour,
         uint256 amount
     ) public assertExactHour(hour) {
-        console.log(block.timestamp, hour);
         if (hour >= block.timestamp || hour + 3600 <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
 
