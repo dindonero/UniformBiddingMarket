@@ -18,7 +18,7 @@ contract EnergyBiddingMarketTest is Test {
         DeployerEnergyBiddingMarket deployer = new DeployerEnergyBiddingMarket();
 
         market = deployer.run();
-        
+
         correctHour = (block.timestamp / 3600) * 3600 + 3600; // first math is to get the current exact hour
         askHour = correctHour + 1;
         clearHour = askHour + 3601;
@@ -29,7 +29,10 @@ contract EnergyBiddingMarketTest is Test {
     }
 
     function test_placeBid_Success() public {
-        market.placeBid{value: minimumPrice * bidAmount}(correctHour, bidAmount);
+        market.placeBid{value: minimumPrice * bidAmount}(
+            correctHour,
+            bidAmount
+        );
         (address bidder, uint256 amount, uint256 price, bool settled) = market
             .bidsByHour(correctHour, 0);
         assertEq(amount, bidAmount);
@@ -165,7 +168,7 @@ contract EnergyBiddingMarketTest is Test {
 
         // Attempt to clear the market for the hour with no asks
         vm.warp(clearHour);
-        
+
         market.clearMarket(correctHour);
         assertEq(market.balanceOf(address(this)), minimumPrice * amount);
     }
@@ -178,7 +181,10 @@ contract EnergyBiddingMarketTest is Test {
         uint256 bidPrice = market.MIN_PRICE();
         for (int i = 0; i < 50; i++) {
             // Total bid amount = 5000, less than the ask
-            market.placeBid{value: bidPrice * smallBidAmount}(correctHour, smallBidAmount);
+            market.placeBid{value: bidPrice * smallBidAmount}(
+                correctHour,
+                smallBidAmount
+            );
         }
 
         vm.warp(askHour);
@@ -207,7 +213,10 @@ contract EnergyBiddingMarketTest is Test {
         // Setup: Place a large bid
         uint256 bigBidAmount = 1000;
         uint256 bidPrice = market.MIN_PRICE();
-        market.placeBid{value: bidPrice * bigBidAmount}(correctHour, bigBidAmount);
+        market.placeBid{value: bidPrice * bigBidAmount}(
+            correctHour,
+            bigBidAmount
+        );
 
         // Place several small asks
         vm.warp(askHour);
@@ -253,7 +262,10 @@ contract EnergyBiddingMarketTest is Test {
         // Place random bids
         for (uint256 i = 0; i < loops; i++) {
             uint256 randomBidAmount = smallBidAmount + (i * 2); // Increment to vary the bid amounts
-            market.placeBid{value: (bidPrice + i) * randomBidAmount}(correctHour, randomBidAmount); // Increment to vary the bid prices
+            market.placeBid{value: (bidPrice + i) * randomBidAmount}(
+                correctHour,
+                randomBidAmount
+            ); // Increment to vary the bid prices
             totalBidAmount += randomBidAmount;
         }
 
@@ -382,7 +394,10 @@ contract EnergyBiddingMarketTest is Test {
         // Setup: Place multiple bids by different addresses
 
         vm.prank(address(0xBEEF));
-        market.placeBid{value: minimumPrice * bidAmount}(correctHour, bidAmount); // Address 0xBEEF places a bid
+        market.placeBid{value: minimumPrice * bidAmount}(
+            correctHour,
+            bidAmount
+        ); // Address 0xBEEF places a bid
 
         vm.stopPrank();
         market.placeBid{value: 200 * minimumPrice}(correctHour, 200); // Address 0xDEAD places another bid
@@ -411,11 +426,15 @@ contract EnergyBiddingMarketTest is Test {
         }
     }
 
-    function test_placeMultipleBids_Success() public {
+    function test_placeMultipleRangedBids_Success() public {
         uint256 beginHour = correctHour;
         uint256 endHour = correctHour + 7200; // 2 hours range
 
-        market.placeMultipleBids{value: minimumPrice * bidAmount * 2}(beginHour, endHour, bidAmount);
+        market.placeMultipleBids{value: minimumPrice * bidAmount * 2}(
+            beginHour,
+            endHour,
+            bidAmount
+        );
 
         for (uint256 hour = beginHour; hour < endHour; hour += 3600) {
             (
@@ -432,12 +451,15 @@ contract EnergyBiddingMarketTest is Test {
     }
 
     function test_proxyUpgradability() public {
-
         // Deploy a new implementation contract
         EnergyBiddingMarket newImplementation = new EnergyBiddingMarket();
 
         // Upgrade the proxy to the new implementation
-        UnsafeUpgrades.upgradeProxy(address(market), address(newImplementation), "");
+        UnsafeUpgrades.upgradeProxy(
+            address(market),
+            address(newImplementation),
+            ""
+        );
 
         bytes32 IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
@@ -446,5 +468,78 @@ contract EnergyBiddingMarketTest is Test {
 
         // Verify that the implementation address has been updated
         assertEq(retrievedImplementation, address(newImplementation));
+    }
+
+    function test_placeMultipleBids_Success() public {
+        uint256[] memory biddingHours = new uint256[](2);
+        biddingHours[0] = correctHour;
+        biddingHours[1] = correctHour + 3600;
+
+        market.placeMultipleBids{value: minimumPrice * bidAmount * 2}(
+            biddingHours,
+            bidAmount
+        );
+
+        for (uint256 i = 0; i < biddingHours.length; i++) {
+            (
+                address bidder,
+                uint256 actualBidAmount,
+                uint256 bidPrice,
+                bool settled
+            ) = market.bidsByHour(biddingHours[i], 0);
+            assertEq(actualBidAmount, bidAmount);
+            assertEq(bidPrice, minimumPrice);
+            assertEq(settled, false);
+            assertEq(bidder, address(this));
+        }
+    }
+
+    function test_placeMultipleBids_AmountZero() public {
+        uint256[] memory biddingHours = new uint256[](2);
+        biddingHours[0] = correctHour;
+        biddingHours[1] = correctHour + 3600;
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EnergyBiddingMarket__AmountCannotBeZero.selector
+            )
+        );
+        market.placeMultipleBids{value: minimumPrice * 2}(biddingHours, 0);
+    }
+
+    function test_placeMultipleBids_InvalidHours() public {
+        uint256[] memory biddingHours = new uint256[](2);
+        biddingHours[0] = correctHour;
+        biddingHours[1] = correctHour + 1; // Invalid hour, not divisible by 3600
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EnergyBiddingMarket__WrongHourProvided.selector,
+                correctHour + 1
+            )
+        );
+        market.placeMultipleBids{value: minimumPrice * bidAmount * 2}(
+            biddingHours,
+            bidAmount
+        );
+    }
+
+    function test_placeMultipleBids_LessThanMinimumPrice() public {
+        uint256[] memory biddingHours = new uint256[](2);
+        biddingHours[0] = correctHour;
+        biddingHours[1] = correctHour + 3600;
+
+        uint256 wrongPrice = minimumPrice - 1;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EnergyBiddingMarket__BidMinimumPriceNotMet.selector,
+                wrongPrice,
+                minimumPrice
+            )
+        );
+        market.placeMultipleBids{value: wrongPrice * bidAmount * 2}(
+            biddingHours,
+            bidAmount
+        );
     }
 }

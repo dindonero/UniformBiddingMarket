@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.24;
 
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 error EnergyBiddingMarket__WrongHourProvided(uint256 hour);
-error EnergyBiddingMarket__WrongHoursProvided(uint256 beginHour, uint256 endHour);
+error EnergyBiddingMarket__WrongHoursProvided(
+    uint256 beginHour,
+    uint256 endHour
+);
 error EnergyBiddingMarket__NoBidsOrAsksForThisHour(uint256 hour);
 error EnergyBiddingMarket__MarketAlreadyClearedForThisHour(uint256 hour);
 error EnergyBiddingMarket__NoClaimableBalance(address user);
@@ -19,7 +22,11 @@ error EnergyBiddingMarket__BidMinimumPriceNotMet(
 );
 error EnergyBiddingMarket__AmountCannotBeZero();
 
-contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+contract EnergyBiddingMarket is
+    Initializable,
+    UUPSUpgradeable,
+    OwnableUpgradeable
+{
     struct Bid {
         address bidder;
         uint256 amount; // Amount of energy in kWh
@@ -36,7 +43,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
 
     uint256 public constant MIN_PRICE = 1000000000000; // 0.000001 ETH per kwH, averaged at $0.003 USD expected to increase
 
-    //todo change structure to mapping(uint256 => mapping(uint256 => Bid)) for gas optimization and clear cancel option
     mapping(uint256 => mapping(uint256 => Bid)) public bidsByHour;
     mapping(uint256 => mapping(uint256 => Ask)) public asksByHour;
 
@@ -99,13 +105,12 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
     /* UUPSUpgradeable logic */
     /*                       */
     /* ///////////////////// */
-    function initialize(address owner) initializer public {
+    function initialize(address owner) public initializer {
         __Ownable_init(owner);
         __UUPSUpgradeable_init();
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}
-
 
     /// @notice Places a bid for energy in a specific market hour.
     /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
@@ -115,7 +120,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         uint256 hour,
         uint256 amount
     ) external payable assertExactHour(hour) {
-
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         uint256 price = msg.value / amount;
@@ -156,7 +160,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         uint256 endHour,
         uint256 amount
     ) external payable assertExactHour(beginHour) assertExactHour(endHour) {
-
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         if (beginHour + 3600 > endHour)
@@ -165,6 +168,24 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         uint256 price = msg.value / ((amount * (endHour - beginHour)) / 3600);
         for (uint256 i = beginHour; i < endHour; i += 3600) {
             _placeBid(i, amount, price);
+        }
+    }
+
+    /// @notice Places multiple bids for energy in specified market hours.
+    /// @dev Calls `_placeBid` for each hour in the provided array of hours.
+    /// @param biddingHours An array of market hours for which bids are being placed.
+    /// @param amount The amount of energy in kWh being bid for each hour.
+    function placeMultipleBids(
+        uint256[] memory biddingHours,
+        uint256 amount
+    ) external payable {
+        if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
+
+        uint256 bidsAmount = biddingHours.length;
+
+        uint256 price = msg.value / (amount * bidsAmount);
+        for (uint256 i = 0; i < bidsAmount; i++) {
+            _placeBid(biddingHours[i], amount, price);
         }
     }
 
