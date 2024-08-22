@@ -33,12 +33,18 @@ contract EnergyBiddingMarketTest is Test {
             correctHour,
             bidAmount
         );
-        (address bidder, uint256 amount, uint256 price, bool settled) = market
-            .bidsByHour(correctHour, 0);
+        (
+            address bidder,
+            bool settled,
+            bool canceled,
+            uint256 amount,
+            uint256 price
+        ) = market.bidsByHour(correctHour, 0);
         assertEq(amount, bidAmount);
         assertEq(price, minimumPrice);
         assertEq(settled, false);
         assertEq(bidder, address(this));
+        assertEq(canceled, false);
     }
 
     function test_placeBid_wrongHour() public {
@@ -90,14 +96,16 @@ contract EnergyBiddingMarketTest is Test {
         market.placeAsk(correctHour, askAmount);
         (
             address seller,
+            bool settled,
+            bool canceled,
             uint256 amount,
-            uint256 matchedAmount,
-            bool settled
+            uint256 matchedAmount
         ) = market.asksByHour(correctHour, 0);
         assertEq(amount, askAmount);
         assertEq(settled, false);
         assertEq(seller, address(this));
         assertEq(matchedAmount, 0);
+        assertEq(canceled, false);
     }
 
     function test_placeAsk_WrongHour() public {
@@ -197,14 +205,14 @@ contract EnergyBiddingMarketTest is Test {
 
         uint256 expectedMatchedAmount = 5000;
 
-        (, , uint256 matchedAmount, bool settled) = market.asksByHour(
+        (, bool settled, , , uint256 matchedAmount) = market.asksByHour(
             correctHour,
             0
         );
         assertEq(settled, false);
         assertEq(matchedAmount, expectedMatchedAmount);
         for (uint256 i = 0; i < 50; i++) {
-            (, matchedAmount, , settled) = market.bidsByHour(correctHour, i);
+            (, settled, , , matchedAmount) = market.bidsByHour(correctHour, i);
             assertEq(settled, true);
         }
     }
@@ -232,19 +240,19 @@ contract EnergyBiddingMarketTest is Test {
         market.clearMarket(correctHour);
 
         // bid should be settled
-        (, , , bool settled) = market.bidsByHour(correctHour, 0);
+        (, bool settled, , ,) = market.bidsByHour(correctHour, 0);
         assertEq(settled, true);
 
         uint256 amountMatched;
 
         // 10 first asks should be settled and the rest shouldn't
         for (uint256 i = 0; i < 10; i++) {
-            (, , amountMatched, settled) = market.asksByHour(correctHour, i);
+            (, settled, , , amountMatched) = market.asksByHour(correctHour, i);
             assertEq(settled, true);
             assertEq(amountMatched, smallAskAmount);
         }
         for (uint256 i = 10; i < 50; i++) {
-            (, , amountMatched, settled) = market.asksByHour(correctHour, i);
+            (, settled, , , amountMatched) = market.asksByHour(correctHour, i);
             assertEq(settled, false);
             assertEq(amountMatched, 0);
         }
@@ -291,7 +299,7 @@ contract EnergyBiddingMarketTest is Test {
 
         // Check bids
         for (uint256 i = 0; i < loops; i++) {
-            (, actualBidAmount, , settled) = market.bidsByHour(correctHour, i);
+            (, settled, , actualBidAmount, ) = market.bidsByHour(correctHour, i);
             if (settled) {
                 matchedBids++;
                 totalMatchedAmount += actualBidAmount;
@@ -305,7 +313,7 @@ contract EnergyBiddingMarketTest is Test {
         uint256 settledAsks = 0;
         uint256 actualTotalAskAmount = 0;
         for (uint256 i = 0; i < loops; i++) {
-            (, amount, amountMatched, settled) = market.asksByHour(
+            (, settled, , amount, amountMatched) = market.asksByHour(
                 correctHour,
                 i
             );
@@ -439,14 +447,16 @@ contract EnergyBiddingMarketTest is Test {
         for (uint256 hour = beginHour; hour < endHour; hour += 3600) {
             (
                 address bidder,
+                bool settled,
+                bool canceled,
                 uint256 actualBidAmount,
-                uint256 bidPrice,
-                bool settled
+                uint256 bidPrice
             ) = market.bidsByHour(hour, 0);
             assertEq(actualBidAmount, bidAmount);
             assertEq(bidPrice, minimumPrice);
             assertEq(settled, false);
             assertEq(bidder, address(this));
+            assertEq(canceled, false);
         }
     }
 
@@ -483,14 +493,16 @@ contract EnergyBiddingMarketTest is Test {
         for (uint256 i = 0; i < biddingHours.length; i++) {
             (
                 address bidder,
+                bool settled,
+                bool canceled,
                 uint256 actualBidAmount,
-                uint256 bidPrice,
-                bool settled
+                uint256 bidPrice
             ) = market.bidsByHour(biddingHours[i], 0);
             assertEq(actualBidAmount, bidAmount);
             assertEq(bidPrice, minimumPrice);
             assertEq(settled, false);
             assertEq(bidder, address(this));
+            assertEq(canceled, false);
         }
     }
 
@@ -541,5 +553,80 @@ contract EnergyBiddingMarketTest is Test {
             biddingHours,
             bidAmount
         );
+    }
+    function test_cancelBid_Success() public {
+        // Setup: Place a bid
+        market.placeBid{value: minimumPrice * bidAmount}(
+            correctHour,
+            bidAmount
+        );
+
+        // Act: Cancel the bid
+        market.cancelBid(correctHour, 0);
+
+        // Assert: Check if the bid is marked as canceled
+        (, , bool canceled, ,) = market.bidsByHour(correctHour, 0);
+        assertEq(canceled, true);
+
+        // Assert: Check if the claimable balance is updated correctly
+        uint256 expectedBalance = bidAmount * minimumPrice;
+        assertEq(market.claimableBalance(address(this)), expectedBalance);
+    }
+
+    function test_cancelBid_NotBidOwner() public {
+        // Setup: Place a bid from a different address
+        vm.prank(address(0xBEEF));
+        market.placeBid{value: minimumPrice * bidAmount}(
+            correctHour,
+            bidAmount
+        );
+
+        // Act and Assert: Attempt to cancel the bid as a non-owner
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EnergyBiddingMarket__OnlyBidOwnerCanCancel.selector,
+                correctHour,
+                address(this)
+            )
+        );
+        market.cancelBid(correctHour, 0);
+    }
+
+    function test_cancelBid_MarketCleared() public {
+        // Setup: Place a bid and clear the market
+        market.placeBid{value: minimumPrice * bidAmount}(
+            correctHour,
+            bidAmount
+        );
+        vm.warp(clearHour);
+        market.clearMarket(correctHour);
+
+        // Act and Assert: Attempt to cancel the bid after the market is cleared
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EnergyBiddingMarket__MarketAlreadyClearedForThisHour.selector,
+                correctHour
+            )
+        );
+        market.cancelBid(correctHour, 0);
+    }
+
+    function test_cancelBid_AlreadyCanceled() public {
+        // Setup: Place a bid and cancel it
+        market.placeBid{value: minimumPrice * bidAmount}(
+            correctHour,
+            bidAmount
+        );
+        market.cancelBid(correctHour, 0);
+
+        // Act and Assert: Attempt to cancel the bid again
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EnergyBiddingMarket__BidIsAlreadyCanceled.selector,
+                correctHour,
+                0
+            )
+        );
+        market.cancelBid(correctHour, 0);
     }
 }

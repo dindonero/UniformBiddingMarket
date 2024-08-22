@@ -21,6 +21,7 @@ error EnergyBiddingMarket__BidMinimumPriceNotMet(
     uint256 minimumPrice
 );
 error EnergyBiddingMarket__AmountCannotBeZero();
+error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
 
 contract EnergyBiddingMarket is
     Initializable,
@@ -29,16 +30,18 @@ contract EnergyBiddingMarket is
 {
     struct Bid {
         address bidder;
+        bool settled; // Flag to indicate if the bid has been settled
+        bool canceled; // Flag to indicate if the bid has been canceled
         uint256 amount; // Amount of energy in kWh
         uint256 price; // Price per kWh in EURC.sol
-        bool settled; // Flag to indicate if the bid has been settled
     }
 
     struct Ask {
         address seller;
+        bool settled; // Flag to indicate if the ask has been settled
+        bool canceled; // Flag to indicate if the ask has been canceled
         uint256 amount; // Amount of energy in kWh
         uint256 matchedAmount; // Amount of energy in kWh that has been matched
-        bool settled; // Flag to indicate if the ask has been settled
     }
 
     uint256 public constant MIN_PRICE = 1000000000000; // 0.000001 ETH per kwH, averaged at $0.003 USD expected to increase
@@ -144,7 +147,7 @@ contract EnergyBiddingMarket is
 
         uint256 totalAsks = totalAsksByHour[hour];
 
-        asksByHour[hour][totalAsks] = (Ask(msg.sender, amount, 0, false));
+        asksByHour[hour][totalAsks] = (Ask(msg.sender, false, false, amount, 0));
         totalAsksByHour[hour]++;
         totalAvailableEnergyByHour[hour] += amount;
         emit AskPlaced(msg.sender, hour, amount);
@@ -289,7 +292,6 @@ contract EnergyBiddingMarket is
         emit MarketCleared(hour, clearingPrice);
     }
 
-    /* todo change bids from list to mapping or add cancel bool to bid
     /// @notice Allows a bidder to cancel their bid for a specific hour if the market has not yet been cleared.
     /// @dev Only the owner of the bid can cancel it, and it cannot be cancelled once the market is cleared.
     /// @param hour The hour of the bid to cancel.
@@ -299,10 +301,12 @@ contract EnergyBiddingMarket is
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
-        EURC.safeTransfer(msg.sender, bidsByHour[hour][index].amount * bidsByHour[hour][index].price);
-        bidsByHour[hour][index] = bidsByHour[hour][bidsByHour[hour].length - 1];
-        bidsByHour[hour].pop();
-    }*/
+        Bid storage bid = bidsByHour[hour][index];
+        if (bid.canceled)
+            revert EnergyBiddingMarket__BidIsAlreadyCanceled(hour, index);
+        bid.canceled = true;
+        claimableBalance[msg.sender] += bid.amount * bid.price;
+    }
 
     /// @notice Places a bid for energy in a specific market hour.
     /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
@@ -326,7 +330,7 @@ contract EnergyBiddingMarket is
 
         uint256 totalBids = totalBidsByHour[hour];
 
-        bidsByHour[hour][totalBids] = (Bid(msg.sender, amount, price, false));
+        bidsByHour[hour][totalBids] = (Bid(msg.sender, false, false, amount, price));
         totalBidsByHour[hour]++;
         emit BidPlaced(msg.sender, hour, amount, price);
     }
