@@ -93,7 +93,7 @@ contract EnergyBiddingMarketTest is Test {
     function test_placeAsk_Success() public {
         vm.warp(askHour);
         uint256 askAmount = 100;
-        market.placeAsk(correctHour, askAmount);
+        market.placeAsk(askAmount, address(this));
         (
             address seller,
             bool settled,
@@ -108,7 +108,7 @@ contract EnergyBiddingMarketTest is Test {
         assertEq(canceled, false);
     }
 
-    function test_placeAsk_WrongHour() public {
+    /*function test_placeAsk_WrongHour() public {
         vm.warp(askHour);
         uint256 wrongHour = correctHour + 1;
         uint256 amount = 100;
@@ -119,7 +119,7 @@ contract EnergyBiddingMarketTest is Test {
             )
         );
         market.placeAsk(wrongHour, amount);
-    }
+    }*/
 
     function test_placeAsk_AmountZero() public {
         vm.warp(askHour);
@@ -128,7 +128,7 @@ contract EnergyBiddingMarketTest is Test {
                 EnergyBiddingMarket__AmountCannotBeZero.selector
             )
         );
-        market.placeAsk(correctHour, 0);
+        market.placeAsk(0, address(this));
     }
 
     function test_claimBalance_NoBalance() public {
@@ -156,7 +156,7 @@ contract EnergyBiddingMarketTest is Test {
         vm.warp(askHour);
         // Setup: Place an ask but no bids
         uint256 amount = 1000;
-        market.placeAsk(correctHour, amount);
+        market.placeAsk(amount, address(this));
 
         // Attempt to clear the market for the hour with no bids
         vm.warp(clearHour);
@@ -197,7 +197,7 @@ contract EnergyBiddingMarketTest is Test {
 
         vm.warp(askHour);
         uint256 bigAskAmount = 10000;
-        market.placeAsk(correctHour, bigAskAmount);
+        market.placeAsk( bigAskAmount, address(this));
 
         // Attempt to clear the market
         vm.warp(clearHour);
@@ -231,7 +231,7 @@ contract EnergyBiddingMarketTest is Test {
         uint256 smallAskAmount = 100;
         for (int i = 0; i < 50; i++) {
             // Total ask amount = 5000, less than the bid
-            market.placeAsk(correctHour, smallAskAmount);
+            market.placeAsk(smallAskAmount, address(this));
         }
 
         // Attempt to clear the market
@@ -281,7 +281,7 @@ contract EnergyBiddingMarketTest is Test {
         // Place random asks
         for (uint256 i = 0; i < loops; i++) {
             uint256 randomAskAmount = smallAskAmount + i; // Increment to vary the ask amounts
-            market.placeAsk(correctHour, randomAskAmount);
+            market.placeAsk(randomAskAmount, address(this));
             totalAskAmount += randomAskAmount;
         }
 
@@ -356,7 +356,7 @@ contract EnergyBiddingMarketTest is Test {
     function test_getAsksByHour() public {
         vm.warp(askHour);
         uint256 amount = 100;
-        market.placeAsk(correctHour, amount);
+        market.placeAsk(amount, address(this));
         EnergyBiddingMarket.Ask[] memory asks = market.getAsksByHour(
             correctHour
         );
@@ -371,13 +371,13 @@ contract EnergyBiddingMarketTest is Test {
         vm.warp(askHour);
         // Setup: Place multiple asks by different addresses
         vm.prank(address(0xBEEF));
-        market.placeAsk(correctHour, 100);
+        market.placeAsk(100, address(0xBEEF));
 
         vm.stopPrank();
-        market.placeAsk(correctHour, 200);
+        market.placeAsk(200, address(this));
 
         vm.prank(address(0xBEEF));
-        market.placeAsk(correctHour, 50);
+        market.placeAsk(50, address(0xBEEF));
 
         // Act: Retrieve asks by specific address
         EnergyBiddingMarket.Ask[] memory beefAsks = market.getAsksByAddress(

@@ -5,28 +5,29 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-error EnergyBiddingMarket__WrongHourProvided(uint256 hour);
-error EnergyBiddingMarket__WrongHoursProvided(
-    uint256 beginHour,
-    uint256 endHour
-);
-error EnergyBiddingMarket__NoBidsOrAsksForThisHour(uint256 hour);
-error EnergyBiddingMarket__MarketAlreadyClearedForThisHour(uint256 hour);
-error EnergyBiddingMarket__NoClaimableBalance(address user);
-error EnergyBiddingMarket__OnlyAskOwnerCanCancel(uint256 hour, address seller);
-error EnergyBiddingMarket__OnlyBidOwnerCanCancel(uint256 hour, address bidder);
-error EnergyBiddingMarket__NoBidFulfilled(uint256 hour);
-error EnergyBiddingMarket__BidMinimumPriceNotMet(
-    uint256 price,
-    uint256 minimumPrice
-);
-error EnergyBiddingMarket__AmountCannotBeZero();
-error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
+    error EnergyBiddingMarket__WrongHourProvided(uint256 hour);
+    error EnergyBiddingMarket__WrongHoursProvided(
+        uint256 beginHour,
+        uint256 endHour
+    );
+    error EnergyBiddingMarket__NoBidsOrAsksForThisHour(uint256 hour);
+    error EnergyBiddingMarket__MarketAlreadyClearedForThisHour(uint256 hour);
+    error EnergyBiddingMarket__NoClaimableBalance(address user);
+    error EnergyBiddingMarket__OnlyAskOwnerCanCancel(uint256 hour, address seller);
+    error EnergyBiddingMarket__OnlyBidOwnerCanCancel(uint256 hour, address bidder);
+    error EnergyBiddingMarket__NoBidFulfilled(uint256 hour);
+    error EnergyBiddingMarket__BidMinimumPriceNotMet(
+        uint256 price,
+        uint256 minimumPrice
+    );
+    error EnergyBiddingMarket__AmountCannotBeZero();
+    error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
+    error EnergyBiddingMarket__SellerIsNotWhitelisted(address seller);
 
 contract EnergyBiddingMarket is
-    Initializable,
-    UUPSUpgradeable,
-    OwnableUpgradeable
+Initializable,
+UUPSUpgradeable,
+OwnableUpgradeable
 {
     struct Bid {
         address bidder;
@@ -58,6 +59,8 @@ contract EnergyBiddingMarket is
     mapping(uint256 => bool) public isMarketCleared;
 
     mapping(address => uint256) public claimableBalance;
+
+    mapping(address => bool) public s_whitelistedSellers;
 
     event BidPlaced(
         address indexed bidder,
@@ -103,6 +106,12 @@ contract EnergyBiddingMarket is
         _;
     }
 
+    modifier whitelistedSeller(address seller) {
+        if (!s_whitelistedSellers[seller])
+            revert EnergyBiddingMarket__SellerIsNotWhitelisted(seller);
+        _;
+    }
+
     /* ///////////////////// */
     /*                       */
     /* UUPSUpgradeable logic */
@@ -129,7 +138,7 @@ contract EnergyBiddingMarket is
         _placeBid(hour, amount, price);
     }
 
-    /// @notice Places an ask for selling energy in a specific market hour.
+    /*/// @notice Places an ask for selling energy in a specific market hour.
     /// @dev Requires that the ask amount is not zero and can only be placed for future hours not yet cleared.
     /// @param hour The market hour for which the ask is being placed.
     /// @param amount The amount of energy in kWh being offered.
@@ -151,6 +160,26 @@ contract EnergyBiddingMarket is
         totalAsksByHour[hour]++;
         totalAvailableEnergyByHour[hour] += amount;
         emit AskPlaced(msg.sender, hour, amount);
+    }*/
+
+    /// @notice Places an ask for selling energy in a specific market hour.
+    /// @dev Requires that the ask amount is not zero and can only be placed for future hours not yet cleared.
+    /// @param amount The amount of energy in kWh being offered.
+    /// @param inBehalfOf The address correspondent to the entity that sold the energy.
+    function placeAsk(
+        uint256 amount,
+        address inBehalfOf
+    ) external /*whitelistedSeller(msg.sender)*/ { // todo remove comment
+        if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
+
+        uint256 hour = getCurrentHourTimestamp();
+
+        uint256 totalAsks = totalAsksByHour[hour];
+
+        asksByHour[hour][totalAsks] = (Ask(inBehalfOf, false, false, amount, 0));
+        totalAsksByHour[hour]++;
+        totalAvailableEnergyByHour[hour] += amount;
+        emit AskPlaced(inBehalfOf, hour, amount);
     }
 
     /// @notice Places multiple bids for energy over a range of market hours.
@@ -210,8 +239,72 @@ contract EnergyBiddingMarket is
     function clearMarket(uint256 hour) external assertExactHour(hour) {
         if (hour + 3600 > block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
+        _clearMarket(hour);
+    }
+
+    /// @notice Clears the market for the past hour, matching bids and asks based on the determined clearing price.
+    function clearMarketPastHour() external {
+        uint256 hour = getCurrentHourTimestamp() - 3600;
+        _clearMarket(hour);
+    }
+
+    /// @notice Allows a bidder to cancel their bid for a specific hour if the market has not yet been cleared.
+    /// @dev Only the owner of the bid can cancel it, and it cannot be cancelled once the market is cleared.
+    /// @param hour The hour of the bid to cancel.
+    /// @param index The index of the bid in the storage array.
+    function cancelBid(uint256 hour, uint256 index) external {
+        if (msg.sender != bidsByHour[hour][index].bidder)
+            revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
+        if (isMarketCleared[hour])
+            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
+        Bid storage bid = bidsByHour[hour][index];
+        if (bid.canceled)
+            revert EnergyBiddingMarket__BidIsAlreadyCanceled(hour, index);
+        bid.canceled = true;
+        claimableBalance[msg.sender] += bid.amount * bid.price;
+    }
+
+    function whitelistSeller(address seller) external onlyOwner {
+        s_whitelistedSellers[seller] = true;
+    }
+
+    /// @notice Places a bid for energy in a specific market hour.
+    /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
+    ///      Bids can only be placed for future hours not yet cleared.
+    /// @param hour The market hour for which the bid is being placed.
+    /// @param amount The amount of energy in kWh being bid for.
+    /// @param price The price per kWh in EURC.
+    function _placeBid(
+        uint256 hour,
+        uint256 amount,
+        uint256 price
+    ) internal assertExactHour(hour) {
+        if (hour <= block.timestamp)
+            revert EnergyBiddingMarket__WrongHourProvided(hour);
+
+        if (price < MIN_PRICE)
+            revert EnergyBiddingMarket__BidMinimumPriceNotMet(price, MIN_PRICE);
+
+        if (isMarketCleared[hour])
+            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
+
+        uint256 totalBids = totalBidsByHour[hour];
+
+        bidsByHour[hour][totalBids] = (Bid(msg.sender, false, false, amount, price));
+        totalBidsByHour[hour]++;
+        emit BidPlaced(msg.sender, hour, amount, price);
+    }
+
+    /// @notice Returns the claimable balance of a user.
+    /// @dev This balance includes any funds due to the user from market operations, such as fulfilled bids or asks.
+    /// @param user The address of the user whose balance is being queried.
+    /// @return The claimable balance of the user.
+    function balanceOf(address user) external view returns (uint256) {
+        return claimableBalance[user];
+    }
+
+    function _clearMarket(uint256 hour) internal {
         if (totalBidsByHour[hour] == 0)
-            // todo check if removable the totalAsks check, the bids are needed to calculate the clearing price
             revert EnergyBiddingMarket__NoBidsOrAsksForThisHour(hour);
         if (isMarketCleared[hour])
             revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
@@ -250,13 +343,13 @@ contract EnergyBiddingMarket is
                     claimableBalance[ask.seller] +=
                         amountLeftInAsk *
                         clearingPrice;
-                    emit AskFulfilled(
+                    /*emit AskFulfilled(
                         hour,
                         ask.seller,
                         j,
                         amountLeftInAsk,
                         clearingPrice
-                    );
+                    );*/
                     fulfilledAsks++;
                     if (totalMatchedEnergyForBid == bid.amount)
                         // saves 1 iteration
@@ -267,13 +360,13 @@ contract EnergyBiddingMarket is
                     claimableBalance[ask.seller] +=
                         (bid.amount - totalMatchedEnergyForBid) *
                         clearingPrice;
-                    emit AskPartiallyFulfilled(
+                    /*emit AskPartiallyFulfilled(
                         hour,
                         ask.seller,
                         j,
                         ask.amount,
                         clearingPrice
-                    );
+                    );*/
                     break;
                 }
             }
@@ -285,62 +378,11 @@ contract EnergyBiddingMarket is
             claimableBalance[bid.bidder] +=
                 bid.amount *
                 (bid.price - clearingPrice);
-            emit BidFulfilled(hour, i, bid.bidder, bid.amount, clearingPrice);
+            /*emit BidFulfilled(hour, i, bid.bidder, bid.amount, clearingPrice);*/
         }
 
         isMarketCleared[hour] = true;
         emit MarketCleared(hour, clearingPrice);
-    }
-
-    /// @notice Allows a bidder to cancel their bid for a specific hour if the market has not yet been cleared.
-    /// @dev Only the owner of the bid can cancel it, and it cannot be cancelled once the market is cleared.
-    /// @param hour The hour of the bid to cancel.
-    /// @param index The index of the bid in the storage array.
-    function cancelBid(uint256 hour, uint256 index) external {
-        if (msg.sender != bidsByHour[hour][index].bidder)
-            revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
-        if (isMarketCleared[hour])
-            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
-        Bid storage bid = bidsByHour[hour][index];
-        if (bid.canceled)
-            revert EnergyBiddingMarket__BidIsAlreadyCanceled(hour, index);
-        bid.canceled = true;
-        claimableBalance[msg.sender] += bid.amount * bid.price;
-    }
-
-    /// @notice Places a bid for energy in a specific market hour.
-    /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
-    ///      Bids can only be placed for future hours not yet cleared.
-    /// @param hour The market hour for which the bid is being placed.
-    /// @param amount The amount of energy in kWh being bid for.
-    /// @param price The price per kWh in EURC.
-    function _placeBid(
-        uint256 hour,
-        uint256 amount,
-        uint256 price
-    ) internal assertExactHour(hour) {
-        if (hour <= block.timestamp)
-            revert EnergyBiddingMarket__WrongHourProvided(hour);
-
-        if (price < MIN_PRICE)
-            revert EnergyBiddingMarket__BidMinimumPriceNotMet(price, MIN_PRICE);
-
-        if (isMarketCleared[hour])
-            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
-
-        uint256 totalBids = totalBidsByHour[hour];
-
-        bidsByHour[hour][totalBids] = (Bid(msg.sender, false, false, amount, price));
-        totalBidsByHour[hour]++;
-        emit BidPlaced(msg.sender, hour, amount, price);
-    }
-
-    /// @notice Returns the claimable balance of a user.
-    /// @dev This balance includes any funds due to the user from market operations, such as fulfilled bids or asks.
-    /// @param user The address of the user whose balance is being queried.
-    /// @return The claimable balance of the user.
-    function balanceOf(address user) external view returns (uint256) {
-        return claimableBalance[user];
     }
 
     /// @dev Sorts bids in descending order by price for a specific hour.
@@ -408,6 +450,16 @@ contract EnergyBiddingMarket is
         // If we cannot find a clearing price that matches or exceeds the total available energy,
         // todo check with ian: we return the last bid price
         return bidsByHour[hour][totalBids - 1].price;
+    }
+
+    /// @notice Retrieves the Unix timestamp of the beginning of the current hour.
+    /// @dev This function rounds down the current block timestamp to the nearest hour.
+    ///      The calculation is performed by dividing the current timestamp by 3600 (seconds per hour)
+    ///      and then multiplying by 3600 to remove any minutes and seconds.
+    /// @return The Unix timestamp corresponding to the start of the current hour.
+    function getCurrentHourTimestamp() public view returns (uint256) {
+        uint256 currentTimestamp = block.timestamp;
+        return (currentTimestamp / 3600) * 3600;
     }
 
     /// @notice Retrieves all bids placed for a specific hour.
