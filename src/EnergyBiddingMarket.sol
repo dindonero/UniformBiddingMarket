@@ -24,11 +24,8 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
     error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
     error EnergyBiddingMarket__SellerIsNotWhitelisted(address seller);
 
-contract EnergyBiddingMarket is
-Initializable,
-UUPSUpgradeable,
-OwnableUpgradeable
-{
+contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+
     struct Bid {
         address bidder;
         bool settled; // Flag to indicate if the bid has been settled
@@ -109,6 +106,12 @@ OwnableUpgradeable
     modifier whitelistedSeller(address seller) {
         if (!s_whitelistedSellers[seller])
             revert EnergyBiddingMarket__SellerIsNotWhitelisted(seller);
+        _;
+    }
+
+    modifier isMarketNotCleared(uint256 hour) {
+        if (isMarketCleared[hour])
+            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
         _;
     }
 
@@ -252,11 +255,9 @@ OwnableUpgradeable
     /// @dev Only the owner of the bid can cancel it, and it cannot be cancelled once the market is cleared.
     /// @param hour The hour of the bid to cancel.
     /// @param index The index of the bid in the storage array.
-    function cancelBid(uint256 hour, uint256 index) external {
+    function cancelBid(uint256 hour, uint256 index) external isMarketNotCleared(hour) {
         if (msg.sender != bidsByHour[hour][index].bidder)
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
-        if (isMarketCleared[hour])
-            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
         Bid storage bid = bidsByHour[hour][index];
         if (bid.canceled)
             revert EnergyBiddingMarket__BidIsAlreadyCanceled(hour, index);
@@ -278,15 +279,12 @@ OwnableUpgradeable
         uint256 hour,
         uint256 amount,
         uint256 price
-    ) internal assertExactHour(hour) {
+    ) internal assertExactHour(hour) isMarketNotCleared(hour) {
         if (hour <= block.timestamp)
             revert EnergyBiddingMarket__WrongHourProvided(hour);
 
         if (price < MIN_PRICE)
             revert EnergyBiddingMarket__BidMinimumPriceNotMet(price, MIN_PRICE);
-
-        if (isMarketCleared[hour])
-            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
 
         uint256 totalBids = totalBidsByHour[hour];
 
@@ -303,11 +301,9 @@ OwnableUpgradeable
         return claimableBalance[user];
     }
 
-    function _clearMarket(uint256 hour) internal {
+    function _clearMarket(uint256 hour) internal isMarketNotCleared(hour) {
         if (totalBidsByHour[hour] == 0)
             revert EnergyBiddingMarket__NoBidsOrAsksForThisHour(hour);
-        if (isMarketCleared[hour])
-            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
 
         sortBids(hour);
 
