@@ -329,6 +329,7 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
             uint256 totalMatchedEnergyForBid = 0;
 
             for (uint256 j = fulfilledAsks; j < totalAsks; j++) {
+                // todo: gas opt - make ask in memory outside of bid loop for improvement when lots of bids for big asks
                 Ask storage ask = asksByHour[hour][j];
                 uint256 amountLeftInAsk = ask.amount - ask.matchedAmount;
                 if (totalMatchedEnergyForBid + amountLeftInAsk <= bid.amount) {
