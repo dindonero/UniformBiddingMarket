@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {BidSorterLib} from "./lib/BidSorterLib.sol";
+
 
     error EnergyBiddingMarket__WrongHourProvided(uint256 hour);
     error EnergyBiddingMarket__WrongHoursProvided(
@@ -24,7 +26,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
     error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
     error EnergyBiddingMarket__SellerIsNotWhitelisted(address seller);
 
-contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeable {
+contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
     struct Bid {
         address bidder;
@@ -140,30 +142,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         uint256 price = msg.value / amount;
         _placeBid(hour, amount, price);
     }
-
-    /*/// @notice Places an ask for selling energy in a specific market hour.
-    /// @dev Requires that the ask amount is not zero and can only be placed for future hours not yet cleared.
-    /// @param hour The market hour for which the ask is being placed.
-    /// @param amount The amount of energy in kWh being offered.
-    function placeAsk(
-        uint256 hour,
-        uint256 amount
-    ) public assertExactHour(hour) {
-        if (hour >= block.timestamp || hour + 3600 <= block.timestamp)
-            revert EnergyBiddingMarket__WrongHourProvided(hour);
-
-        if (isMarketCleared[hour])
-            revert EnergyBiddingMarket__MarketAlreadyClearedForThisHour(hour);
-
-        if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
-
-        uint256 totalAsks = totalAsksByHour[hour];
-
-        asksByHour[hour][totalAsks] = (Ask(msg.sender, false, false, amount, 0));
-        totalAsksByHour[hour]++;
-        totalAvailableEnergyByHour[hour] += amount;
-        emit AskPlaced(msg.sender, hour, amount);
-    }*/
 
     /// @notice Places an ask for selling energy in a specific market hour.
     /// @dev Requires that the ask amount is not zero and can only be placed for future hours not yet cleared.
@@ -302,27 +280,29 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
     }
 
     function _clearMarket(uint256 hour) internal isMarketNotCleared(hour) {
-        if (totalBidsByHour[hour] == 0)
+
+        Bid[] memory bids = getBidsByHour(hour);
+        uint[] memory sortedIndices = BidSorterLib.sortedBidIndicesDescending(bids);
+
+        if (sortedIndices.length == 0)
             revert EnergyBiddingMarket__NoBidsOrAsksForThisHour(hour);
 
-        sortBids(hour);
-
-        uint256 totalBids = totalBidsByHour[hour];
+        uint256 totalBids = sortedIndices.length;
         uint256 totalAsks = totalAsksByHour[hour];
 
-        uint256 clearingPrice = determineClearingPrice(hour);
+        uint256 clearingPrice = determineClearingPrice(hour, bids, sortedIndices);
         clearingPricePerHour[hour] = clearingPrice;
 
         uint256 fulfilledAsks = 0;
 
         for (uint256 i = 0; i < totalBids; i++) {
-            Bid storage bid = bidsByHour[hour][i];
+            Bid storage bid = bidsByHour[hour][sortedIndices[i]];
             if (bid.price < clearingPrice || clearingPrice == 0) {
                 // if this consumes too much gas, change it to cancel bids
                 for (uint k = i; k < totalBids; k++)
-                    claimableBalance[bidsByHour[hour][k].bidder] +=
-                        bidsByHour[hour][k].amount *
-                        bidsByHour[hour][k].price;
+                    claimableBalance[bidsByHour[hour][sortedIndices[k]].bidder] +=
+                        bidsByHour[hour][sortedIndices[k]].amount *
+                        bidsByHour[hour][sortedIndices[k]].price;
                 break;
             }
 
@@ -340,13 +320,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
                     claimableBalance[ask.seller] +=
                         amountLeftInAsk *
                         clearingPrice;
-                    /*emit AskFulfilled(
-                        hour,
-                        ask.seller,
-                        j,
-                        amountLeftInAsk,
-                        clearingPrice
-                    );*/
                     fulfilledAsks++;
                     if (totalMatchedEnergyForBid == bid.amount)
                         // saves 1 iteration
@@ -357,13 +330,6 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
                     claimableBalance[ask.seller] +=
                         (bid.amount - totalMatchedEnergyForBid) *
                         clearingPrice;
-                    /*emit AskPartiallyFulfilled(
-                        hour,
-                        ask.seller,
-                        j,
-                        ask.amount,
-                        clearingPrice
-                    );*/
                     break;
                 }
             }
@@ -382,51 +348,15 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         emit MarketCleared(hour, clearingPrice);
     }
 
-    /// @dev Sorts bids in descending order by price for a specific hour.
-    /// @param hour The hour for which to sort the bids.
-    function sortBids(uint256 hour) internal {
-        uint256 length = totalBidsByHour[hour]; // Use the total number of bids for this hour
-        uint256[] memory keys = new uint256[](length);
-
-        for (uint256 i = 0; i < length; i++) {
-            keys[i] = i;
-        }
-
-        for (uint256 i = 1; i < keys.length; i++) {
-            uint256 keyIndex = keys[i];
-            Bid memory keyBid = bidsByHour[hour][keyIndex];
-            uint256 j = i;
-            while (
-                j > 0 && bidsByHour[hour][keys[j - 1]].price < keyBid.price
-            ) {
-                keys[j] = keys[j - 1];
-                j--;
-            }
-            keys[j] = keyIndex;
-        }
-
-        // Reorder bidsByHour based on the sorted keys
-        for (uint256 i = 0; i < keys.length; i++) {
-            if (keys[i] != i) {
-                Bid memory temp = bidsByHour[hour][i];
-                bidsByHour[hour][i] = bidsByHour[hour][keys[i]];
-                bidsByHour[hour][keys[i]] = temp;
-
-                // Update keys to reflect the swap
-                uint256 oldKey = keys[i];
-                keys[i] = keys[oldKey];
-                keys[oldKey] = oldKey;
-            }
-        }
-    }
-
     /// @dev Determines the clearing price for a specific hour based on bid amounts and available energy.
     /// @param hour The hour for which to determine the clearing price.
     /// @return The clearing price based on bid competition and energy availability.
     function determineClearingPrice(
-        uint256 hour
+        uint256 hour,
+        Bid[] memory bids,
+        uint[] memory sortedIndices
     ) internal view returns (uint256) {
-        uint256 totalBids = totalBidsByHour[hour];
+        uint256 totalBids = sortedIndices.length;
 
         uint256 totalMatchedEnergy = 0;
         uint256 totalAvailableEnergy = totalAvailableEnergyByHour[hour];
@@ -434,19 +364,19 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
         // Assuming bids are sorted by price in descending order
         for (uint256 i = 0; i < totalBids; i++) {
             // Simulate the accumulation of bids until the total matched energy equals/exceeds the available energy
-            totalMatchedEnergy += bidsByHour[hour][i].amount;
+            totalMatchedEnergy += bids[sortedIndices[i]].amount;
 
             // If the accumulated energy meets/exceeds total available energy, return the last bid's price as the clearing price
             // todo check with ian: we return the last bid price so that there is no half matched bid
             if (totalMatchedEnergy > totalAvailableEnergy) {
                 if (i == 0) return 0;
-                else return bidsByHour[hour][i - 1].price;
+                else return bids[sortedIndices[i-1]].price;
             }
         }
 
         // If we cannot find a clearing price that matches or exceeds the total available energy,
         // todo check with ian: we return the last bid price
-        return bidsByHour[hour][totalBids - 1].price;
+        return bidsByHour[hour][sortedIndices[totalBids - 1]].price;
     }
 
     /// @notice Retrieves the Unix timestamp of the beginning of the current hour.
@@ -462,7 +392,7 @@ contract EnergyBiddingMarket is Initializable, UUPSUpgradeable, OwnableUpgradeab
     /// @notice Retrieves all bids placed for a specific hour.
     /// @param hour The hour for which bids are being retrieved.
     /// @return An array of Bid structs for the specified hour.
-    function getBidsByHour(uint256 hour) external view returns (Bid[] memory) {
+    function getBidsByHour(uint256 hour) public view returns (Bid[] memory) {
         uint256 totalBids = totalBidsByHour[hour];
         Bid[] memory bids = new Bid[](totalBids);
 
