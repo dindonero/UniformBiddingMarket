@@ -249,9 +249,9 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         claimableBalance[msg.sender] += bid.amount * bid.price;
     }
 
-    function whitelistSeller(address seller) external onlyOwner {
-        s_whitelistedSellers[seller] = true;
-    }
+    function whitelistSeller(address seller, bool enable) external onlyOwner {
+        s_whitelistedSellers[seller] = enable;
+    }   
 
     /// @notice Places a bid for energy in a specific market hour.
     /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
