@@ -122,6 +122,12 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     /* UUPSUpgradeable logic */
     /*                       */
     /* ///////////////////// */
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(address owner) public initializer {
         __Ownable_init(owner);
         __UUPSUpgradeable_init();
