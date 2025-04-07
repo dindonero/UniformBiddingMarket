@@ -215,7 +215,8 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         if (balance == 0)
             revert EnergyBiddingMarket__NoClaimableBalance(msg.sender);
         claimableBalance[msg.sender] = 0;
-        payable(msg.sender).transfer(balance);
+        (bool success,) = msg.sender.call{value: balance}("");
+        require(success, "ETH transfer failed");
     }
 
     /// @notice Clears the market for a specific hour, matching bids and asks based on the determined clearing price.
