@@ -142,7 +142,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     function placeBid(
         uint256 hour,
         uint256 amount
-    ) external payable assertExactHour(hour) {
+    ) external payable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         uint256 price = msg.value / amount;
@@ -185,7 +185,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         uint256 beginHour,
         uint256 endHour,
         uint256 amount
-    ) external payable assertExactHour(beginHour) assertExactHour(endHour) {
+    ) external payable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         if (beginHour + 3600 > endHour)
