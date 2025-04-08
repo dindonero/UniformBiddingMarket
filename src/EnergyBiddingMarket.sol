@@ -191,9 +191,18 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         if (beginHour + 3600 > endHour)
             revert EnergyBiddingMarket__WrongHoursProvided(beginHour, endHour);
 
-        uint256 price = msg.value / ((amount * (endHour - beginHour)) / 3600);
+        uint256 totalEnergy = ((amount * (endHour - beginHour)) / 3600);
+        uint256 price = msg.value / totalEnergy;
+        uint256 totalCost = price * totalEnergy;
+        uint256 excess = msg.value - totalCost;
+
         for (uint256 i = beginHour; i < endHour; i += 3600) {
             _placeBid(i, amount, price);
+        }
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "ETH transfer failed");
         }
     }
 
