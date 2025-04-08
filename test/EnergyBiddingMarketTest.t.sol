@@ -871,4 +871,36 @@ contract EnergyBiddingMarketTest is Test {
         assertEq(address(market).balance, ethAmount - expectedResidual, "Incorrect ETH balance");
         console.log("Total residual     :", ethAmount - (actualPrice * actualAmount));
     }
+
+    function test_PlaceMultipleBidsResiduals() public {
+        // 1. Limit parameters to safe ranges
+        uint256 numHours = 18; // 18 hours
+        uint256 energyAmount = 9;
+
+        // 2. Constrain ethAmount to valid range
+        uint256 ethAmount = 9999838000000018636; // 9999838000000018636 wei
+
+        // 3. Calculate time parameters
+        uint256 currentHour = (block.timestamp / 3600) * 3600;
+        uint256 beginHour = currentHour + 3600;
+        uint256 endHour = beginHour + (numHours * 3600);
+
+        // 4. Execute multiple bids
+        vm.deal(BIDDER, ethAmount);
+        vm.startPrank(BIDDER);
+        market.placeMultipleBids{value: ethAmount}(beginHour, endHour, energyAmount);
+        vm.stopPrank();
+
+        // 5. Verify residual calculations
+        uint256 totalUsed;
+        for (uint256 hour = beginHour; hour < endHour; hour += 3600) {
+            (,,, uint256 amount, uint256 price) = market.bidsByHour(hour, 0);
+            totalUsed += amount * price;
+        }
+
+        console.log("Total residual:", ethAmount - totalUsed);
+        assertEq(address(market).balance, totalUsed, "Contract should not retain residuals");
+
+        assertGt(ethAmount - totalUsed, 0, "No residual amount");
+    }
 }
