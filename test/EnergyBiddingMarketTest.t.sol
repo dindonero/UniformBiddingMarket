@@ -837,4 +837,38 @@ contract EnergyBiddingMarketTest is Test {
         }
         console.log("");
     }
+
+    function test_PlaceBidResiduals() public {
+        // Calculate current hour using block timestamp
+        uint256 currentHour = (block.timestamp / 3600) * 3600;
+        uint256 hour = currentHour + 3600;
+
+        uint256 energyAmount = 1779; // 1779 kWh
+        uint256 ethAmount = 9999999000000022007; // 0.9999999000000022007 ETH
+
+        // Calculate expected truncated price
+        uint256 expectedPrice = ethAmount / energyAmount;
+        console.log("Expected price     :", expectedPrice);
+
+        // Execute bid placement
+        vm.deal(BIDDER, ethAmount);
+        vm.prank(BIDDER);
+        market.placeBid{value: ethAmount}(hour, energyAmount);
+
+        // Get stored bid details
+        (,,, uint256 actualAmount, uint256 actualPrice) = market.bidsByHour(hour, 0);
+
+        // Verify price calculation
+        assertEq(actualPrice, expectedPrice, "Incorrect price calculation");
+        console.log("Actual price       :", actualPrice);
+
+        // Calculate expected residual
+        uint256 expectedResidual = ethAmount - (expectedPrice * energyAmount);
+        assertGt(expectedResidual, 0, "No residual amount");
+        console.log("Expected residual  :", expectedResidual);
+
+        // Verify residual amount not retained
+        assertEq(address(market).balance, ethAmount - expectedResidual, "Incorrect ETH balance");
+        console.log("Total residual     :", ethAmount - (actualPrice * actualAmount));
+    }
 }

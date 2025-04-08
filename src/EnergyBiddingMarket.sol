@@ -146,7 +146,14 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         uint256 price = msg.value / amount;
+        uint256 totalCost = price * amount;
+        uint256 excess = msg.value - totalCost;
         _placeBid(hour, amount, price);
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "It tranfer failed");
+        }
     }
 
     /// @notice Places an ask for selling energy in a specific market hour.
@@ -252,7 +259,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
     function whitelistSeller(address seller, bool enable) external onlyOwner {
         s_whitelistedSellers[seller] = enable;
-    }   
+    }
 
     /// @notice Places a bid for energy in a specific market hour.
     /// @dev Requires that the bid price is above the minimum price and the bid amount is not zero.
@@ -378,7 +385,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
             // todo check with ian: we return the last bid price so that there is no half matched bid
             if (totalMatchedEnergy > totalAvailableEnergy) {
                 if (i == 0) return 0;
-                else return bids[sortedIndices[i-1]].price;
+                else return bids[sortedIndices[i - 1]].price;
             }
         }
 
