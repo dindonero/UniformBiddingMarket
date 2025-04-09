@@ -218,9 +218,17 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
         uint256 bidsAmount = biddingHours.length;
 
-        uint256 price = msg.value / (amount * bidsAmount);
+        uint256 totalEnergy = amount * bidsAmount;
+        uint256 price = msg.value / totalEnergy;
+        uint256 totalCost = price * totalEnergy;
+        uint256 excess = msg.value - totalCost;
         for (uint256 i = 0; i < bidsAmount; i++) {
             _placeBid(biddingHours[i], amount, price);
+        }
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "ETH transfer failed");
         }
     }
 
