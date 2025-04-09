@@ -275,6 +275,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function whitelistSeller(address seller, bool enable) external onlyOwner {
+        require(seller != address(0), "Invalid seller address");
         s_whitelistedSellers[seller] = enable;
     }
 
