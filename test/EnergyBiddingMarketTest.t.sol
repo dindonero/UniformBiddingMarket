@@ -784,6 +784,48 @@ contract EnergyBiddingMarketTest is Test {
         assertEq(matchedAmount, totalEnergy);
     }
 
+    function test_multipleBidsPricedAtClearingPrice() public {
+        // Place bids
+        vm.startPrank(BIDDER);
+        market.placeBid{value: 1 ether}(correctHour, 100);
+        market.placeBid{value: 1 ether}(correctHour, 100);
+        vm.stopPrank();
+
+        // Warp to the timestamp where askers begin to ask
+        vm.warp(askHour);
+
+        // Asker places an ask to fully match the bid
+        vm.prank(ASKER);
+        market.placeAsk(100, ASKER);
+
+        // Skip 1 hour so that we can clear the market and settle the orders
+        vm.warp(clearHour);
+
+        // Clear the market
+        market.clearMarket(correctHour);
+
+        EnergyBiddingMarket.Bid[] memory bids = market.getBidsByHour(correctHour);
+
+        // Assert that bid 1 is settled
+        assertFalse(bids[0].settled);
+        // Assert that bid 2 is settled
+        assertTrue(bids[1].settled);
+        // Assert that the asker's claimable balance corresponds only to the total eth amount of the first matched bid
+        assertEq(market.claimableBalance(BIDDER), 1 ether);
+        // Assert that the bidder got no refund for the unmatched bid
+        assertEq(market.claimableBalance(ASKER), 1 ether);
+        // Assert that the market contract holds 2 ETH
+        assertEq(address(market).balance, 2 ether);
+        // Assert that the bidder cannot cancel the unmatched bid to recoup the funds
+        vm.expectRevert(abi.encodeWithSelector(EnergyBiddingMarket__MarketAlreadyClearedForThisHour.selector, correctHour));
+        vm.prank(BIDDER);
+        market.cancelBid(correctHour, 1);
+
+        // Logs bids settled flag
+        console.log("BID 1 SETTLED  :", bids[0].settled);
+        console.log("BID 2 SETTLED  :", bids[1].settled);
+    }
+
     function test_marketCanHandle10000BidsAndAsks() public {
         DoNotRun doNotRun = new DoNotRun();
         doNotRun.run();
@@ -794,5 +836,99 @@ contract EnergyBiddingMarketTest is Test {
             console.log("Price of bid #%d : %18e ETH", i, bids[i].price);
         }
         console.log("");
+    }
+
+    function test_PlaceBidResiduals() public {
+        // Calculate current hour using block timestamp
+        uint256 currentHour = (block.timestamp / 3600) * 3600;
+        uint256 hour = currentHour + 3600;
+
+        uint256 energyAmount = 1779; // 1779 kWh
+        uint256 ethAmount = 9999999000000022007; // 0.9999999000000022007 ETH
+
+        // Calculate expected truncated price
+        uint256 expectedPrice = ethAmount / energyAmount;
+        console.log("Expected price     :", expectedPrice);
+
+        // Execute bid placement
+        vm.deal(BIDDER, ethAmount);
+        vm.prank(BIDDER);
+        market.placeBid{value: ethAmount}(hour, energyAmount);
+
+        // Get stored bid details
+        (,,, uint256 actualAmount, uint256 actualPrice) = market.bidsByHour(hour, 0);
+
+        // Verify price calculation
+        assertEq(actualPrice, expectedPrice, "Incorrect price calculation");
+        console.log("Actual price       :", actualPrice);
+
+        // Calculate expected residual
+        uint256 expectedResidual = ethAmount - (expectedPrice * energyAmount);
+        assertGt(expectedResidual, 0, "No residual amount");
+        console.log("Expected residual  :", expectedResidual);
+
+        // Verify residual amount not retained
+        assertEq(address(market).balance, ethAmount - expectedResidual, "Incorrect ETH balance");
+        console.log("Total residual     :", ethAmount - (actualPrice * actualAmount));
+    }
+
+    function test_PlaceMultipleBidsResiduals() public {
+        // 1. Limit parameters to safe ranges
+        uint256 numHours = 18; // 18 hours
+        uint256 energyAmount = 9;
+
+        // 2. Constrain ethAmount to valid range
+        uint256 ethAmount = 9999838000000018636; // 9999838000000018636 wei
+
+        // 3. Calculate time parameters
+        uint256 currentHour = (block.timestamp / 3600) * 3600;
+        uint256 beginHour = currentHour + 3600;
+        uint256 endHour = beginHour + (numHours * 3600);
+
+        // 4. Execute multiple bids
+        vm.deal(BIDDER, ethAmount);
+        vm.startPrank(BIDDER);
+        market.placeMultipleBids{value: ethAmount}(beginHour, endHour, energyAmount);
+        vm.stopPrank();
+
+        // 5. Verify residual calculations
+        uint256 totalUsed;
+        for (uint256 hour = beginHour; hour < endHour; hour += 3600) {
+            (,,, uint256 amount, uint256 price) = market.bidsByHour(hour, 0);
+            totalUsed += amount * price;
+        }
+
+        console.log("Total residual:", ethAmount - totalUsed);
+        assertEq(address(market).balance, totalUsed, "Contract should not retain residuals");
+
+        assertGt(ethAmount - totalUsed, 0, "No residual amount");
+    }
+
+    function test_ArrayBulkBidResiduals() public {
+        // 1. Define parameters
+        uint256[] memory hoursArray = new uint256[](17); // 17-hour bids
+        uint256 currentHour = (block.timestamp / 3600) * 3600;
+        for (uint256 i = 0; i < 17; i++) {
+            hoursArray[i] = currentHour + 3600 * (i + 1); // Future hours
+        }
+
+        uint256 energyAmount = 13; // 13 kWh per bid
+        uint256 ethAmount = 9999999000000022007; // 9999999000000022007 wei
+
+        // 2. Place bids
+        vm.deal(BIDDER, ethAmount);
+        vm.prank(BIDDER);
+        market.placeMultipleBids{value: ethAmount}(hoursArray, energyAmount);
+
+        // 3. Calculate residuals
+        uint256 totalUsed;
+        for (uint256 i = 0; i < hoursArray.length; i++) {
+            (,,, uint256 amount, uint256 price) = market.bidsByHour(hoursArray[i], 0);
+            totalUsed += amount * price;
+        }
+
+        console.log("Total residual:", ethAmount - totalUsed);
+        assertGt(ethAmount - totalUsed, 0, "No residual retained");
+        assertEq(address(market).balance, totalUsed, "Full amount locked");
     }
 }
