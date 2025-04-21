@@ -903,4 +903,32 @@ contract EnergyBiddingMarketTest is Test {
 
         assertGt(ethAmount - totalUsed, 0, "No residual amount");
     }
+
+    function test_ArrayBulkBidResiduals() public {
+        // 1. Define parameters
+        uint256[] memory hoursArray = new uint256[](17); // 17-hour bids
+        uint256 currentHour = (block.timestamp / 3600) * 3600;
+        for (uint256 i = 0; i < 17; i++) {
+            hoursArray[i] = currentHour + 3600 * (i + 1); // Future hours
+        }
+
+        uint256 energyAmount = 13; // 13 kWh per bid
+        uint256 ethAmount = 9999999000000022007; // 9999999000000022007 wei
+
+        // 2. Place bids
+        vm.deal(BIDDER, ethAmount);
+        vm.prank(BIDDER);
+        market.placeMultipleBids{value: ethAmount}(hoursArray, energyAmount);
+
+        // 3. Calculate residuals
+        uint256 totalUsed;
+        for (uint256 i = 0; i < hoursArray.length; i++) {
+            (,,, uint256 amount, uint256 price) = market.bidsByHour(hoursArray[i], 0);
+            totalUsed += amount * price;
+        }
+
+        console.log("Total residual:", ethAmount - totalUsed);
+        assertGt(ethAmount - totalUsed, 0, "No residual retained");
+        assertEq(address(market).balance, totalUsed, "Full amount locked");
+    }
 }

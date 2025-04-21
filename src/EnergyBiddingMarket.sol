@@ -25,6 +25,7 @@ import {BidSorterLib} from "./lib/BidSorterLib.sol";
     error EnergyBiddingMarket__AmountCannotBeZero();
     error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
     error EnergyBiddingMarket__SellerIsNotWhitelisted(address seller);
+    error EnergyBiddingMarket__BidDoesNotExist(uint256 hour, uint256 index);
 
 contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
@@ -142,7 +143,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     function placeBid(
         uint256 hour,
         uint256 amount
-    ) external payable assertExactHour(hour) {
+    ) external payable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         uint256 price = msg.value / amount;
@@ -185,7 +186,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         uint256 beginHour,
         uint256 endHour,
         uint256 amount
-    ) external payable assertExactHour(beginHour) assertExactHour(endHour) {
+    ) external payable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         if (beginHour + 3600 > endHour)
@@ -218,9 +219,17 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
         uint256 bidsAmount = biddingHours.length;
 
-        uint256 price = msg.value / (amount * bidsAmount);
+        uint256 totalEnergy = amount * bidsAmount;
+        uint256 price = msg.value / totalEnergy;
+        uint256 totalCost = price * totalEnergy;
+        uint256 excess = msg.value - totalCost;
         for (uint256 i = 0; i < bidsAmount; i++) {
             _placeBid(biddingHours[i], amount, price);
+        }
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "ETH transfer failed");
         }
     }
 
@@ -257,6 +266,9 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     /// @param hour The hour of the bid to cancel.
     /// @param index The index of the bid in the storage array.
     function cancelBid(uint256 hour, uint256 index) external isMarketNotCleared(hour) {
+        if (index >= totalBidsByHour[hour]) {
+            revert EnergyBiddingMarket__BidDoesNotExist(hour, index);
+        }
         if (msg.sender != bidsByHour[hour][index].bidder)
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
         Bid storage bid = bidsByHour[hour][index];
@@ -267,6 +279,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function whitelistSeller(address seller, bool enable) external onlyOwner {
+        require(seller != address(0), "Invalid seller address");
         s_whitelistedSellers[seller] = enable;
     }
 
