@@ -25,6 +25,7 @@ import {BidSorterLib} from "./lib/BidSorterLib.sol";
     error EnergyBiddingMarket__AmountCannotBeZero();
     error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
     error EnergyBiddingMarket__SellerIsNotWhitelisted(address seller);
+    error EnergyBiddingMarket__BidDoesNotExist(uint256 hour, uint256 index);
 
 contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
@@ -265,6 +266,9 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     /// @param hour The hour of the bid to cancel.
     /// @param index The index of the bid in the storage array.
     function cancelBid(uint256 hour, uint256 index) external isMarketNotCleared(hour) {
+        if (index >= totalBidsByHour[hour]) {
+            revert EnergyBiddingMarket__BidDoesNotExist(hour, index);
+        }
         if (msg.sender != bidsByHour[hour][index].bidder)
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
         Bid storage bid = bidsByHour[hour][index];
@@ -275,6 +279,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     }
 
     function whitelistSeller(address seller, bool enable) external onlyOwner {
+        require(seller != address(0), "Invalid seller address");
         s_whitelistedSellers[seller] = enable;
     }
 
