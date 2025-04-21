@@ -25,6 +25,7 @@ import {BidSorterLib} from "./lib/BidSorterLib.sol";
     error EnergyBiddingMarket__AmountCannotBeZero();
     error EnergyBiddingMarket__BidIsAlreadyCanceled(uint256 hour, uint256 index);
     error EnergyBiddingMarket__SellerIsNotWhitelisted(address seller);
+    error EnergyBiddingMarket__BidDoesNotExist(uint256 hour, uint256 index);
 
 contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
@@ -142,11 +143,18 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     function placeBid(
         uint256 hour,
         uint256 amount
-    ) external payable assertExactHour(hour) {
+    ) external payable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         uint256 price = msg.value / amount;
+        uint256 totalCost = price * amount;
+        uint256 excess = msg.value - totalCost;
         _placeBid(hour, amount, price);
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "It tranfer failed");
+        }
     }
 
     /// @notice Places an ask for selling energy in a specific market hour.
@@ -178,15 +186,24 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         uint256 beginHour,
         uint256 endHour,
         uint256 amount
-    ) external payable assertExactHour(beginHour) assertExactHour(endHour) {
+    ) external payable {
         if (amount == 0) revert EnergyBiddingMarket__AmountCannotBeZero();
 
         if (beginHour + 3600 > endHour)
             revert EnergyBiddingMarket__WrongHoursProvided(beginHour, endHour);
 
-        uint256 price = msg.value / ((amount * (endHour - beginHour)) / 3600);
+        uint256 totalEnergy = ((amount * (endHour - beginHour)) / 3600);
+        uint256 price = msg.value / totalEnergy;
+        uint256 totalCost = price * totalEnergy;
+        uint256 excess = msg.value - totalCost;
+
         for (uint256 i = beginHour; i < endHour; i += 3600) {
             _placeBid(i, amount, price);
+        }
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "ETH transfer failed");
         }
     }
 
@@ -202,9 +219,17 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
 
         uint256 bidsAmount = biddingHours.length;
 
-        uint256 price = msg.value / (amount * bidsAmount);
+        uint256 totalEnergy = amount * bidsAmount;
+        uint256 price = msg.value / totalEnergy;
+        uint256 totalCost = price * totalEnergy;
+        uint256 excess = msg.value - totalCost;
         for (uint256 i = 0; i < bidsAmount; i++) {
             _placeBid(biddingHours[i], amount, price);
+        }
+
+        if (excess > 0) {
+            (bool success,) = msg.sender.call{value: excess}("");
+            require(success, "ETH transfer failed");
         }
     }
 
@@ -215,7 +240,8 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         if (balance == 0)
             revert EnergyBiddingMarket__NoClaimableBalance(msg.sender);
         claimableBalance[msg.sender] = 0;
-        payable(msg.sender).transfer(balance);
+        (bool success,) = msg.sender.call{value: balance}("");
+        require(success, "ETH transfer failed");
     }
 
     /// @notice Clears the market for a specific hour, matching bids and asks based on the determined clearing price.
@@ -240,6 +266,9 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
     /// @param hour The hour of the bid to cancel.
     /// @param index The index of the bid in the storage array.
     function cancelBid(uint256 hour, uint256 index) external isMarketNotCleared(hour) {
+        if (index >= totalBidsByHour[hour]) {
+            revert EnergyBiddingMarket__BidDoesNotExist(hour, index);
+        }
         if (msg.sender != bidsByHour[hour][index].bidder)
             revert EnergyBiddingMarket__OnlyBidOwnerCanCancel(hour, msg.sender);
         Bid storage bid = bidsByHour[hour][index];
@@ -249,8 +278,9 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
         claimableBalance[msg.sender] += bid.amount * bid.price;
     }
 
-    function whitelistSeller(address seller) external onlyOwner {
-        s_whitelistedSellers[seller] = true;
+    function whitelistSeller(address seller, bool enable) external onlyOwner {
+        require(seller != address(0), "Invalid seller address");
+        s_whitelistedSellers[seller] = enable;
     }
 
     /// @notice Places a bid for energy in a specific market hour.
@@ -377,7 +407,7 @@ contract EnergyBiddingMarket is UUPSUpgradeable, OwnableUpgradeable {
             // todo check with ian: we return the last bid price so that there is no half matched bid
             if (totalMatchedEnergy > totalAvailableEnergy) {
                 if (i == 0) return 0;
-                else return bids[sortedIndices[i-1]].price;
+                else return bids[sortedIndices[i - 1]].price;
             }
         }
 
